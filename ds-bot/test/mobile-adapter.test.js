@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createAdapter } from '../src/mobile/adapter.js'
+import { install as installChannel } from '../src/host/channel.js'
 import { createTextAccumulator, projectRecords } from '../src/mobile/projection.js'
 
 const user = (seq, text, more = {}) => ({ type: 'event', event: { type: 'user/message', seq, time: 1000 + seq,
@@ -341,6 +342,38 @@ test('pending human input is projected separately and removing it never clears t
   await assert.rejects(adapter.action('queue-remove', { conversationId: 'b1', sessionId: 'new', itemId: 'internal' }), { status: 409 })
   await adapter.action('queue-remove', { conversationId: 'b1', sessionId: 'new', itemId: 'human' })
   assert.deepEqual(calls.find(call => call[0] === 'queue-update')[1], { sessionId: 'new', itemId: 'human', action: { kind: 'remove' } })
+})
+
+test('mobile steers the existing queued item without resubmitting or cancelling the active turn', async () => {
+  const { adapter, rt, calls } = fixture()
+  rt.ctx.sessionController.projections = async () => ({ values: { inbox: {
+    'next-turn': [{ id: 'human', source: { kind: 'user', rpcId: 'r' }, content: [{ type: 'text', text: 'A correction now' }] }], 'next-step': [],
+  } } })
+  rt.ctx.sessionController.updateQueue = async request => { calls.push(['queue-update', request]); return { accepted: true } }
+  const result = await adapter.action('queue-steer', { conversationId: 'b1', sessionId: 'new', itemId: 'human' })
+  assert.equal(result.accepted, true)
+  assert.deepEqual(calls.find(call => call[0] === 'queue-update')[1], { sessionId: 'new', itemId: 'human', action: { kind: 'steer' } })
+  assert.equal(calls.some(call => ['prompt', 'cancel'].includes(call[0])), false)
+})
+test('queue steering rejects stale, internal, read-only and revoked-device requests before changing the host', async () => {
+  const { adapter, rt, calls } = fixture()
+  rt.ctx.sessionController.projections = async () => ({ values: { inbox: {
+    'next-turn': [{ id: 'human', source: { kind: 'user', rpcId: 'r' }, content: [{ type: 'text', text: 'Later' }] }, { id: 'internal', source: { kind: 'bot' }, content: [{ type: 'text', text: 'Private handoff' }] }], 'next-step': [],
+  } } })
+  rt.ctx.sessionController.updateQueue = async request => { calls.push(['queue-update', request]); return { accepted: true } }
+  await assert.rejects(adapter.action('queue-steer', { conversationId: 'b1', sessionId: 'old', itemId: 'human' }), { status: 409 })
+  await assert.rejects(adapter.action('queue-steer', { conversationId: 'b1', sessionId: 'new', itemId: 'internal' }), { status: 409 })
+  rt.readOnly = () => 'Owned elsewhere'
+  await assert.rejects(adapter.action('queue-steer', { conversationId: 'b1', sessionId: 'new', itemId: 'human' }), { status: 409 })
+  rt.readOnly = () => undefined
+  let authorized = true
+  adapter.setApprovalBroker(undefined, { authorizeDevice: async () => authorized })
+  rt.ctx.sessionController.projections = async () => {
+    authorized = false
+    return { values: { inbox: { 'next-turn': [{ id: 'human', source: { kind: 'user', rpcId: 'r' }, content: [{ type: 'text', text: 'Later' }] }], 'next-step': [] } } }
+  }
+  await assert.rejects(adapter.action('queue-steer', { conversationId: 'b1', sessionId: 'new', itemId: 'human' }, undefined, { deviceId: 'paired' }), { status: 401 })
+  assert.equal(calls.some(call => call[0] === 'queue-update'), false)
 })
 
 test('follow emits a queue baseline and durable inbox splices without inventing transcript messages', async () => {
@@ -851,4 +884,37 @@ test('known secrets are redacted from Bot descriptions, group notices and pendin
   assert.equal(JSON.stringify(state).includes(secret), false)
   assert.equal(state.views.new.view.text, '[redacted]')
   assert.equal(view.bots[0].instructions, `Instruction ${secret}`)
+})
+
+test('group memory actions retain their room target and reject foreign or ambiguous scopes', async () => {
+  const { adapter, calls } = fixture()
+  for (const endpoint of ['memory-view', 'memory-ask', 'memory-forget']) {
+    await adapter.action(endpoint, { roomId: 'room', text: 'entry', topic: 'work', scope: 'group' })
+    assert.equal(calls.at(-1)[1], endpoint)
+    assert.equal(calls.at(-1)[2].roomId, 'room')
+    assert.equal(calls.at(-1)[2].botId, undefined)
+    await assert.rejects(adapter.action(endpoint, { roomId: 'foreign' }), { status: 404 })
+    await assert.rejects(adapter.action(endpoint, { roomId: 'room', botId: 'b1' }), { status: 400 })
+  }
+})
+test('mobile question dismissal requires the displayed card identity', async () => {
+  const { adapter, view, calls } = fixture()
+  view.questions.new = { id: 'q2' }
+  await assert.rejects(adapter.action('dismiss-question', { sessionId: 'new', questionId: 'q1' }), { status: 409 })
+  await assert.rejects(adapter.action('dismiss-question', { sessionId: 'new' }), { status: 409 })
+  assert.equal(calls.some(call => call[1] === 'dismiss-question'), false)
+  await adapter.action('dismiss-question', { sessionId: 'new', questionId: 'q2' })
+  assert.deepEqual(calls.at(-1), ['team', 'dismiss-question', { sessionId: 'new', questionId: 'q2' }])
+})
+test('host rechecks question identity after loading so a newer question survives stale dismissal', async () => {
+  let saved = 0
+  const rt = { ctx: { effect() {} }, state: { bots: {}, questions: { s: { id: 'new-question' } } },
+    refresh: async () => {}, load: async () => {}, save: async () => { saved++ },
+    readOnly: () => undefined, own: (object, key) => Object.hasOwn(object, key) ? object[key] : undefined }
+  installChannel(rt)
+  const stale = await rt.teamCall('dismiss-question', { sessionId: 's', questionId: 'old-question' })
+  assert.equal(stale.ok, false); assert.equal(stale.error.code, 'bot/stale')
+  assert.equal(rt.state.questions.s.id, 'new-question'); assert.equal(saved, 0)
+  const current = await rt.teamCall('dismiss-question', { sessionId: 's', questionId: 'new-question' })
+  assert.equal(current.ok, true); assert.equal(rt.state.questions.s, undefined); assert.equal(saved, 1)
 })

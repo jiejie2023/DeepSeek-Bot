@@ -336,6 +336,7 @@ export function install(rt) {
         case 'dismiss-question':
           await rt.load()
           signal?.throwIfAborted()
+          if (body.questionId !== undefined && rt.own(state.questions, body.sessionId)?.id !== body.questionId) return fail('This question is no longer open', 'bot/stale')
           if (rt.own(state.questions, body.sessionId) !== undefined) {
             delete state.questions[body.sessionId]
             await rt.save()

@@ -21,11 +21,11 @@ const ACTIONS = {
   'create-room': ['name', 'members', 'admin', 'greet'],
   'update-room': ['id', 'name', 'notice', 'mode', 'admin', 'members', 'add', 'remove', 'workDir', 'permission', 'relayLimit'], 'delete-room': ['id'],
   folders: [], 'folder-list': ['path'],
-  'memory-view': ['botId', 'summarize', 'regenerate'], 'memory-forget': ['botId', 'scope', 'topic', 'text'], 'memory-ask': ['botId', 'text'],
-  'answer-question': ['sessionId', 'questionId', 'answer'], 'dismiss-question': ['sessionId'],
+  'memory-view': ['botId', 'roomId', 'summarize', 'regenerate'], 'memory-forget': ['botId', 'roomId', 'scope', 'topic', 'text'], 'memory-ask': ['botId', 'roomId', 'text'],
+  'answer-question': ['sessionId', 'questionId', 'answer'], 'dismiss-question': ['sessionId', 'questionId'],
   'view-reply': ['conversationId', 'sessionId', 'viewId', 'action', 'values'], 'dismiss-view': ['conversationId', 'sessionId', 'viewId'],
   'room-progress': ['roomId'], 'room-continue': ['roomId'], usage: ['timeZone'], models: [], efforts: ['ref'],
-  queue: ['conversationId'], 'queue-remove': ['conversationId', 'sessionId', 'itemId'],
+  queue: ['conversationId'], 'queue-remove': ['conversationId', 'sessionId', 'itemId'], 'queue-steer': ['conversationId', 'sessionId', 'itemId'],
   'set-flags': ['id', 'pinned', 'hidden'], 'set-prefs': ['theme', 'accent', 'motion'],
   exchange: ['a', 'b'], earlier: ['sessionId', 'cursor'], parts: ['conversationId'], search: ['conversationId', 'query', 'cursor', 'limit'],
   context: ['conversationId', 'sessionId', 'seq', 'limit'],
@@ -51,7 +51,7 @@ export const MOBILE_ACTIONS = Object.freeze(Object.keys(ACTIONS))
 const MUTATION_ACTIONS = new Set([
   'create-bot', 'update-bot', 'duplicate-bot', 'delete-bot', 'set-main',
   'create-room', 'update-room', 'delete-room', 'set-flags', 'set-prefs', 'room-continue',
-  'exchange', 'queue-remove', 'memory-forget', 'bot-capability', 'stop-member-work',
+  'exchange', 'queue-remove', 'queue-steer', 'memory-forget', 'bot-capability', 'stop-member-work',
   'answer-question', 'dismiss-question', 'view-reply', 'dismiss-view', 'schedule-create', 'schedule-delete',
   'connector-connect', 'connector-retry', 'connector-disconnect', 'browser-control',
   'secret-set', 'secret-allow', 'secret-cancel', 'secret-update', 'secret-delete',
@@ -456,7 +456,7 @@ export function createAdapter(rt) {
     if (endpoint.startsWith('credentials-')) return credentials(endpoint, body, scoped)
     if (endpoint === 'browser-pages' || endpoint === 'browser-read' || endpoint === 'browser-control') return browser(endpoint, body, scoped, caller)
     if (endpoint === 'queue') return queue(body.conversationId, scoped)
-    if (endpoint === 'queue-remove') {
+    if (endpoint === 'queue-remove' || endpoint === 'queue-steer') {
       const item = await conversation(body.conversationId)
       requireSession(item, body.sessionId, true)
       if (rt.readOnly?.() !== undefined) throw error(409, 'bot/read-only', 'The team is read-only on this host')
@@ -464,8 +464,9 @@ export function createAdapter(rt) {
       const pending = await queue(body.conversationId, scoped)
       if (pending.sessionId !== body.sessionId) throw error(409, 'mobile/target-changed', 'The conversation moved to a new part. Refresh the queue.')
       if (!pending.items.some(message => message.id === body.itemId)) throw error(409, 'session/queue-item-not-found', 'This queued message is no longer pending.')
+      await requireAuthorizedDevice(caller)
       scoped.throwIfAborted()
-      const result = await publicCall(() => ctx.sessionController.updateQueue({ sessionId: body.sessionId, itemId: body.itemId, action: { kind: 'remove' } }, scoped))
+      const result = await publicCall(() => ctx.sessionController.updateQueue({ sessionId: body.sessionId, itemId: body.itemId, action: { kind: endpoint === 'queue-steer' ? 'steer' : 'remove' } }, scoped))
       return { ...result, conversationId: body.conversationId, sessionId: body.sessionId, itemId: body.itemId }
     }
     const view = await team('state')
@@ -516,7 +517,13 @@ export function createAdapter(rt) {
         }
       }
     }
-    if (endpoint.startsWith('memory-')) requireBot(body.botId)
+    if (endpoint.startsWith('memory-')) {
+      if (!!body.botId === !!body.roomId) throw error(400, 'mobile/invalid', 'Choose one Bot or group for memory')
+      if (body.roomId) {
+        if (!rooms.has(body.roomId)) throw error(404, 'mobile/not-found', 'This group is not on the team')
+      } else requireBot(body.botId)
+    }
+    if (endpoint === 'dismiss-question' && (!validId(body.questionId) || view.questions?.[body.sessionId]?.id !== body.questionId)) throw error(409, 'bot/stale', 'This question is no longer open')
     if (body.replace !== undefined) requireBot(body.replace)
     if (['update-room', 'delete-room', 'room-progress', 'room-continue'].includes(endpoint) && !rooms.has(body.id ?? body.roomId)) throw error(404, 'mobile/not-found', 'This group is not on the team')
     if (endpoint === 'room-continue' && rt.readOnly?.() !== undefined) throw error(409, 'bot/read-only', 'The team is read-only on this host')
