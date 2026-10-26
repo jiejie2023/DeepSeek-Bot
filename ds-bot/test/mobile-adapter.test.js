@@ -355,6 +355,23 @@ test('mobile steers the existing queued item without resubmitting or cancelling 
   assert.deepEqual(calls.find(call => call[0] === 'queue-update')[1], { sessionId: 'new', itemId: 'human', action: { kind: 'steer' } })
   assert.equal(calls.some(call => ['prompt', 'cancel'].includes(call[0])), false)
 })
+test('editing a queued message replaces only its text through the public edit action', async () => {
+  const { adapter, rt, calls } = fixture()
+  rt.ctx.sessionController.projections = async () => ({ values: { inbox: {
+    'next-turn': [{ id: 'human', source: { kind: 'user', rpcId: 'r' }, content: [{ type: 'text', text: 'old text' }] }], 'next-step': [],
+  } } })
+  rt.ctx.sessionController.updateQueue = async request => { calls.push(['queue-update', request]); return { accepted: true } }
+  await adapter.action('queue-edit', { conversationId: 'b1', sessionId: 'new', itemId: 'human', text: '  new text  ' })
+  const update = calls.find(call => call[0] === 'queue-update')
+  assert.deepEqual(update[1].action, { kind: 'edit', content: [{ type: 'text', text: '  new text  ' }] })
+  assert.equal(update[1].sessionId, 'new')
+  for (const text of ['', '   ', 42, 'x'.repeat(8001)]) {
+    await assert.rejects(adapter.action('queue-edit', { conversationId: 'b1', sessionId: 'new', itemId: 'human', text }), { status: 400 })
+  }
+  await assert.rejects(adapter.action('queue-edit', { conversationId: 'b1', sessionId: 'new', itemId: 'gone', text: 'x' }), { status: 409 })
+  assert.equal(calls.filter(call => call[0] === 'queue-update').length, 1)
+})
+
 test('queue steering rejects stale, internal, read-only and revoked-device requests before changing the host', async () => {
   const { adapter, rt, calls } = fixture()
   rt.ctx.sessionController.projections = async () => ({ values: { inbox: {

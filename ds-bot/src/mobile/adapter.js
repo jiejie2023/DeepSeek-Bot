@@ -25,7 +25,7 @@ const ACTIONS = {
   'answer-question': ['sessionId', 'questionId', 'answer'], 'dismiss-question': ['sessionId', 'questionId'],
   'view-reply': ['conversationId', 'sessionId', 'viewId', 'action', 'values'], 'dismiss-view': ['conversationId', 'sessionId', 'viewId'],
   'room-progress': ['roomId'], 'room-continue': ['roomId'], usage: ['timeZone'], models: [], efforts: ['ref'],
-  queue: ['conversationId'], 'queue-remove': ['conversationId', 'sessionId', 'itemId'], 'queue-steer': ['conversationId', 'sessionId', 'itemId'],
+  queue: ['conversationId'], 'queue-remove': ['conversationId', 'sessionId', 'itemId'], 'queue-steer': ['conversationId', 'sessionId', 'itemId'], 'queue-edit': ['conversationId', 'sessionId', 'itemId', 'text'],
   'set-flags': ['id', 'pinned', 'hidden'], 'set-prefs': ['theme', 'accent', 'motion'],
   exchange: ['a', 'b'], earlier: ['sessionId', 'cursor'], parts: ['conversationId'], search: ['conversationId', 'query', 'cursor', 'limit'],
   context: ['conversationId', 'sessionId', 'seq', 'limit'],
@@ -51,7 +51,7 @@ export const MOBILE_ACTIONS = Object.freeze(Object.keys(ACTIONS))
 const MUTATION_ACTIONS = new Set([
   'create-bot', 'update-bot', 'duplicate-bot', 'delete-bot', 'set-main',
   'create-room', 'update-room', 'delete-room', 'set-flags', 'set-prefs', 'room-continue',
-  'exchange', 'queue-remove', 'queue-steer', 'memory-forget', 'bot-capability', 'stop-member-work',
+  'exchange', 'queue-remove', 'queue-steer', 'queue-edit', 'memory-forget', 'bot-capability', 'stop-member-work',
   'answer-question', 'dismiss-question', 'view-reply', 'dismiss-view', 'schedule-create', 'schedule-delete',
   'connector-connect', 'connector-retry', 'connector-disconnect', 'browser-control',
   'secret-set', 'secret-allow', 'secret-cancel', 'secret-update', 'secret-delete',
@@ -456,17 +456,21 @@ export function createAdapter(rt) {
     if (endpoint.startsWith('credentials-')) return credentials(endpoint, body, scoped)
     if (endpoint === 'browser-pages' || endpoint === 'browser-read' || endpoint === 'browser-control') return browser(endpoint, body, scoped, caller)
     if (endpoint === 'queue') return queue(body.conversationId, scoped)
-    if (endpoint === 'queue-remove' || endpoint === 'queue-steer') {
+    if (endpoint === 'queue-remove' || endpoint === 'queue-steer' || endpoint === 'queue-edit') {
       const item = await conversation(body.conversationId)
       requireSession(item, body.sessionId, true)
       if (rt.readOnly?.() !== undefined) throw error(409, 'bot/read-only', 'The team is read-only on this host')
       if (!validId(body.itemId)) throw error(400, 'mobile/invalid', 'A queued message ID is required')
+      if (endpoint === 'queue-edit' && (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 8000)) throw error(400, 'mobile/invalid', 'A queued message needs text of at most 8000 characters')
       const pending = await queue(body.conversationId, scoped)
       if (pending.sessionId !== body.sessionId) throw error(409, 'mobile/target-changed', 'The conversation moved to a new part. Refresh the queue.')
       if (!pending.items.some(message => message.id === body.itemId)) throw error(409, 'session/queue-item-not-found', 'This queued message is no longer pending.')
       await requireAuthorizedDevice(caller)
       scoped.throwIfAborted()
-      const result = await publicCall(() => ctx.sessionController.updateQueue({ sessionId: body.sessionId, itemId: body.itemId, action: { kind: endpoint === 'queue-steer' ? 'steer' : 'remove' } }, scoped))
+      const action = endpoint === 'queue-edit'
+        ? { kind: 'edit', content: [{ type: 'text', text: body.text }] }
+        : { kind: endpoint === 'queue-steer' ? 'steer' : 'remove' }
+      const result = await publicCall(() => ctx.sessionController.updateQueue({ sessionId: body.sessionId, itemId: body.itemId, action }, scoped))
       return { ...result, conversationId: body.conversationId, sessionId: body.sessionId, itemId: body.itemId }
     }
     const view = await team('state')
