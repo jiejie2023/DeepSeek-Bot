@@ -40,7 +40,6 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
 import { createMobileApprovals, MobileApprovalDock, MobileApprovalNotice, MOBILE_APPROVAL_CSS } from './mobile-approvals.js'
-import { MOBILE_SETTINGS_CSS } from './mobile-settings.js'
 import { listedOpener } from './open-listed.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
@@ -752,7 +751,7 @@ export function apply(ctx) {
     () => installCompiledStyles(MEMBER_CSS, 'members'),
     () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
     () => installCompiledStyles(WIDGET_CSS, 'widgets'),
-    () => installCompiledStyles(MOBILE_APPROVAL_CSS + MOBILE_SETTINGS_CSS, 'mobile'),
+    () => installCompiledStyles(MOBILE_APPROVAL_CSS, 'mobile'),
     () => { const stop = mobileApprovals.start(); return () => stop() },
     browsers ? () => installCompiledStyles(BROWSER_CSS, 'browser') : null,
     () => installTheme(),

@@ -865,6 +865,37 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 @media (max-width:640px) and (pointer:coarse){
   .bt-input,.bt-bs-input,.bt-browser-address input,.bt-folder-input,.bt-secret-input,.bt-q-input,.bt-to input,.bt-palette-head input,.bt-mem-input{font-size:16px}
 }
+/* Settings → Mobile devices. */
+.bt-mobile-page{display:flex;flex-direction:column;gap:20px;min-width:0}
+.bt-mobile-page .bt-set-row{flex-wrap:wrap;padding:14px 16px;gap:12px}
+.bt-mobile-page .bt-set-copy{min-width:min(100%,200px);gap:5px;overflow-wrap:anywhere}
+.bt-mobile-page .bt-set-hint{color:var(--bt-ink-2);line-height:1.6}
+.bt-mobile-page .bt-soft{min-height:32px;height:auto;padding:7px 14px;flex-shrink:0;box-shadow:none;white-space:normal}
+.bt-mobile-primary{background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-mobile-primary:hover{background:color-mix(in srgb,var(--bt-accent) 90%,var(--bt-ink))}
+.bt-mobile-intro{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:18px 16px}
+.bt-mobile-intro h3{font-size:15px;margin:0}
+.bt-mobile-intro p{margin:0}
+.bt-mobile-mark{width:40px;height:40px;flex:none;border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-accent)}
+.bt-mobile-mark svg{width:22px;height:22px}
+.bt-mobile-status{border-radius:999px;padding:4px 10px;background:var(--bt-hover);font-size:11px;color:var(--bt-ink-2);white-space:nowrap}
+.bt-mobile-status[data-enabled]{color:var(--bt-accent);background:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-card))}
+.bt-mobile-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:100%}
+.bt-mobile-actions select{max-width:100%}
+.bt-mobile-page .bt-set-row>.bt-select{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-mobile-page .bt-switch-knob{box-shadow:none}
+.bt-mobile-pairing{display:flex;flex-wrap:wrap;gap:20px;padding:16px}
+.bt-mobile-qr{background:#fff;border-radius:12px;padding:8px;line-height:0;align-self:flex-start}
+.bt-mobile-qr img{display:block;max-width:100%;height:auto}
+.bt-mobile-steps{flex:1;min-width:min(100%,180px);font-size:13px;line-height:1.7}
+.bt-mobile-steps ol{padding-left:20px;margin:0;display:flex;flex-direction:column;gap:10px}
+.bt-mobile-manual{width:100%;border-top:1px solid var(--bt-line);padding-top:12px;font-size:12px}
+.bt-mobile-manual summary{cursor:pointer;color:var(--bt-ink-2);padding:4px 0}
+.bt-mobile-manual textarea{display:block;box-sizing:border-box;width:100%;margin-top:10px;padding:10px;border-radius:8px;border:1px solid var(--bt-line-2);background:var(--bt-main);color:var(--bt-ink);resize:vertical;overflow-wrap:anywhere;font:12px/1.5 monospace}
+.bt-mobile-empty{padding:18px 16px;margin:0;font-size:12px;line-height:1.6;color:var(--bt-ink-2)}
+.bt-mobile-note{margin:0;padding:0 4px}
+.bt-mobile-error{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.bt-mobile-error .bt-error{margin:0;overflow-wrap:anywhere}
 `
 
 export const CONVERSATION_CSS = `
