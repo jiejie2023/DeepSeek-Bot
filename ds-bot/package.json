@@ -37,7 +37,8 @@
     "web-search.js",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "src/mobile/"
   ],
   "scripts": {
     "build": "node scripts/build-client.mjs",
@@ -62,5 +63,9 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4",
+    "ws": "8.21.0"
   }
 }

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { apply, createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 function start(state, { config = {}, services } = {}) {
@@ -28,6 +28,32 @@ function start(state, { config = {}, services } = {}) {
   return { ctx, call, stop, applyResult }
 }
 
+test('an aborted mobile write cannot mutate the team after a delayed refresh', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-mobile-abort-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home })
+  t.after(() => ctx.dispose())
+  const originalRefresh = rt.refresh
+  let entered, release
+  const waiting = new Promise(resolve => { entered = resolve })
+  rt.refresh = async () => {
+    entered()
+    await new Promise(resolve => { release = resolve })
+    await originalRefresh()
+  }
+  let mutated = false
+  rt.createBot = async () => { mutated = true; return { id: 'unexpected' } }
+  const abort = new AbortController()
+  const request = rt.teamCall('create-bot', { name: 'Should not exist', role: 'Bot' }, abort.signal)
+  await waiting
+  abort.abort()
+  release()
+  const response = await request
+  assert.equal(response.ok, false)
+  assert.equal(mutated, false)
+})
+
 // Listeners run, and tools are listed, in the order they are registered.
 test('apply registers listeners, tools, and effects in a fixed order', (t) => {
   const { ctx, stop, applyResult } = start()
@@ -40,6 +66,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on credentials/reference-updated',
     'on settings/document-updated',
     'on session/event',
+    'effect ds-bot: Classic chat titles',
     'effect ds-bot: agent tool restrict retry',
     'on agent/created',
     'effect ds-bot: identity section',
@@ -115,6 +142,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: api route',
     'route POST /api/bot',
     'effect ds-bot: load state',
+    'effect ds-bot: mobile bridge'
   ])
 })
 

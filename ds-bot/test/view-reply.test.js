@@ -214,7 +214,11 @@ test('dismiss-view drops the open view and leaves a question card alone', async 
     { agent: { id: 'writer-now' }, callId: 'q-call', concludeTurn() {} },
   )
   await show('writer-now', { title: 'Pick', view: CHOICES })
-  assert.equal((await call('dismiss-view', { sessionId: 'writer-now' })).ok, true)
+  const viewId = (await team()).views['writer-now'].id
+  const stale = await call('dismiss-view', { sessionId: 'writer-now', viewId: 'previous-card' })
+  assert.equal(stale.error.code, 'bot/stale')
+  assert.equal((await team()).views['writer-now'].id, viewId)
+  assert.equal((await call('dismiss-view', { sessionId: 'writer-now', viewId })).ok, true)
   const open = await team()
   assert.equal(open.views['writer-now'], undefined)
   assert.equal(open.questions['writer-now'].question, 'Keep me')

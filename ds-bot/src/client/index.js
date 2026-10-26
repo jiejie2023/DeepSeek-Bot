@@ -39,6 +39,8 @@ import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
+import { createMobileApprovals, MobileApprovalDock, MobileApprovalNotice, MOBILE_APPROVAL_CSS } from './mobile-approvals.js'
+import { MOBILE_SETTINGS_CSS } from './mobile-settings.js'
 import { listedOpener } from './open-listed.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
@@ -104,6 +106,8 @@ export function apply(ctx) {
   const activity = createSource({})
   // Per Bot, the turn it runs and its tool; and the approvals waiting for the user.
   const work = createSource({ bots: {}, approvals: [] })
+  const mobileApprovals = createMobileApprovals((endpoint, payload, signal) => call('mobile', { endpoint, payload }, signal))
+  ctx.effect(() => () => mobileApprovals.dispose(), 'ds-bot: mobile approval state')
   let workKey = ''
   // Per Session, what its transcript has in flight (running tools, a streaming reply).
   const live = createSource({})
@@ -492,6 +496,8 @@ export function apply(ctx) {
       ui.set(state => ({ ...state, reactions }))
     },
     clearUnread: id => writeUnread(id, false),
+    answerMobileApproval: (id, decision) => mobileApprovals.answer(id, decision),
+    openMobileApproval: (id) => { if (id) actions.openSession(id) },
   }
   // Without the Desktop bridge these stay undefined, and no browser control renders.
   if (browsers) {
@@ -580,13 +586,18 @@ export function apply(ctx) {
   }
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, surface, update } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, surface, update, mobileApprovals } })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
     shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
     openSession: id => actions.openSession(id),
   }), 'ds-bot: approval notifications')
+  const mobileApprovalFace = (sessionId) => {
+    const binding = ctx.sessions.binding(sessionId)
+    const chat = binding === undefined ? undefined : ctx.uiConversation.binding(binding).target('chat')
+    return { ...face(), hooks: { ...face().hooks, ...(chat ? { chat } : {}) } }
+  }
   const assistantFace = (sessionId) => {
     const binding = ctx.sessions.binding(sessionId)
     if (binding === undefined) throw new Error(`ds-bot: unknown session "${sessionId}"`)
@@ -741,6 +752,8 @@ export function apply(ctx) {
     () => installCompiledStyles(MEMBER_CSS, 'members'),
     () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
     () => installCompiledStyles(WIDGET_CSS, 'widgets'),
+    () => installCompiledStyles(MOBILE_APPROVAL_CSS + MOBILE_SETTINGS_CSS, 'mobile'),
+    () => { const stop = mobileApprovals.start(); return () => stop() },
     browsers ? () => installCompiledStyles(BROWSER_CSS, 'browser') : null,
     () => installTheme(),
     () => shadow('sidebar.workspaces', { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
@@ -755,6 +768,7 @@ export function apply(ctx) {
     () => shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
     () => shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
     () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
+    () => shadow('shell.overlay', { id: 'bot-mobile-approvals', order: 65, inject: face }, MobileApprovalNotice),
   ]
   const installConversation = () => [
     () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
@@ -798,6 +812,7 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
     () => shadow('conversation.input.dock', { id: 'bot-view', order: -95, inject: face }, WidgetDock),
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
+    () => shadow('conversation.input.dock', { id: 'bot-mobile-approvals', order: -80, inject: mobileApprovalFace }, MobileApprovalDock),
   ]
   // The return button belongs to neither group: it renders only in Agent mode.
   ctx.effect(() => installCompiledStyles(RETURN_CSS, 'return'), 'ds-bot: return styles')

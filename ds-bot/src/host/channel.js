@@ -135,6 +135,7 @@ export function install(rt) {
     try {
       const body = payload ?? {}
       await rt.refresh()
+      signal?.throwIfAborted()
       const readOnly = rt.readOnly()
       if (readOnly !== undefined && !READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
       switch (endpoint) {
@@ -157,6 +158,7 @@ export function install(rt) {
           const turn = Number(body.turn)
           if (!Number.isFinite(turn) || rt.selfOf(sessionId) === undefined) return ok(null)
           await rt.load()
+          signal?.throwIfAborted()
           const ms = await rt.thinkingOf(sessionId, turn)
           return ok(ms === undefined ? {} : { ms })
         }
@@ -175,18 +177,22 @@ export function install(rt) {
           return ok(await rt.removeProvider(String(body.provider ?? '')))
         case 'duplicate-bot':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.duplicateBot(body.id))
         case 'set-prefs':
           await rt.load()
+          signal?.throwIfAborted()
           await setPrefs(body)
           return ok(state.prefs)
         case 'exchange': {
           await rt.load()
+          signal?.throwIfAborted()
           const pair = new Set([body.a, body.b])
           return ok(state.exchanges.filter(entry => pair.has(entry.from) && pair.has(entry.to)))
         }
         case 'exchange-text': {
           await rt.load()
+          signal?.throwIfAborted()
           const entry = state.exchanges.find(item => item.id === body.id)
           if (entry === undefined) return fail('This message is no longer kept', 'bot/stale')
           return ok(await rt.exchangeText(entry))
@@ -199,14 +205,17 @@ export function install(rt) {
         }
         case 'earlier':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.earlierPage(String(body.sessionId ?? ''), body.cursor ?? undefined))
         case 'chat':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.chatPage(String(body.botId ?? ''), body.cursor ?? undefined))
         // DSH's own whole-log figures for the current part of a Bot's chat, the ones its
         // status bar shows; a window without that bar shows them in the Bot's details.
         case 'run-stats': {
           await rt.load()
+          signal?.throwIfAborted()
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           const projections = ctx.get?.('sessionProjections')
@@ -216,23 +225,28 @@ export function install(rt) {
         }
         case 'usage':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.usageView({ timeZone: typeof body.timeZone === 'string' ? body.timeZone.slice(0, 64) : undefined }))
         case 'room-progress':
           return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null })))
         case 'create-bot': {
           await rt.bootstrap()
+          signal?.throwIfAborted()
           const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir })
           return ok(bot)
         }
         case 'update-bot':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.updateBot(body.id, body))
         case 'delete-bot':
           await rt.load()
+          signal?.throwIfAborted()
           await rt.deleteBot(body.id)
           return ok(view())
         case 'set-main':
           await rt.load()
+          signal?.throwIfAborted()
           await rt.setMain(body.id, body.main !== false, {
             primary: body.primary === true,
             replace: typeof body.replace === 'string' ? body.replace : undefined,
@@ -240,12 +254,14 @@ export function install(rt) {
           return ok(view())
         case 'create-room': {
           await rt.load()
+          signal?.throwIfAborted()
           const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
           if (body.greet === true) await rt.greetRoom(room.id).catch(error => rt.warn('ds-bot: greeting in %s failed: %s', room.name, error))
           return ok(room)
         }
         case 'update-room': {
           await rt.load()
+          signal?.throwIfAborted()
           const { room, changes } = await rt.updateRoom(body.id, {
             name: body.name,
             notice: body.notice,
@@ -262,6 +278,7 @@ export function install(rt) {
         }
         case 'room-continue': {
           await rt.load()
+          signal?.throwIfAborted()
           await rt.continueRoom(body.roomId)
           return ok(view())
         }
@@ -269,36 +286,46 @@ export function install(rt) {
         case 'folder-pick':
         case 'folder-list':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.folderEndpoint(endpoint, body, signal))
         case 'team-workspace':
           await rt.load()
+          signal?.throwIfAborted()
           return ok({ team: await rt.setTeamWorkspace(String(body.path ?? '')) })
         case 'add-agent':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.addAgent())
         case 'agent-session':
           await rt.load()
+          signal?.throwIfAborted()
           return ok({ sessionId: await rt.createAgentSession(body.agentId, body.workspaceId) })
         case 'agent-adopt':
           await rt.load()
+          signal?.throwIfAborted()
           return ok({ sessionId: await rt.adoptAgentSession(body.agentId, body.sessionId) })
         case 'agent-archive':
           await rt.load()
+          signal?.throwIfAborted()
           await rt.archiveAgentSession(body.agentId, body.sessionId)
           return ok(true)
         case 'agent-rename':
           await rt.load()
+          signal?.throwIfAborted()
           await rt.renameAgentSession(body.agentId, body.sessionId, body.title)
           return ok(true)
         case 'remove-agent':
           await rt.load()
+          signal?.throwIfAborted()
           await rt.removeAgent(body.agentId)
           return ok(view())
         case 'set-flags':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.setFlags(body.id, body))
         case 'delete-room':
           await rt.load()
+          signal?.throwIfAborted()
           await rt.deleteRoom(body.id)
           return ok(view())
         case 'approval-answer':
@@ -308,49 +335,60 @@ export function install(rt) {
           return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
         case 'dismiss-question':
           await rt.load()
+          signal?.throwIfAborted()
           if (rt.own(state.questions, body.sessionId) !== undefined) {
             delete state.questions[body.sessionId]
             await rt.save()
           }
           return ok(true)
-        case 'dismiss-view':
+        case 'dismiss-view': {
           await rt.load()
-          if (rt.own(state.views, body.sessionId) !== undefined) {
+          signal?.throwIfAborted()
+          const pending = rt.own(state.views, body.sessionId)
+          if (body.viewId !== undefined && pending?.id !== body.viewId) return fail('This view is no longer open', 'bot/stale')
+          if (pending !== undefined) {
             delete state.views[body.sessionId]
             await rt.save()
           }
           return ok(true)
+        }
         case 'secret-set':
         case 'secret-allow':
         case 'secret-cancel':
         case 'secret-update':
         case 'secret-delete':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':
         case 'connector-disconnect':
         case 'connector-retry':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.connectorEndpoint(endpoint, body))
         case 'capability-save':
         case 'capability-delete':
         case 'capability-approve':
         case 'bot-capability':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.capabilityEndpoint(endpoint, body))
         case 'schedules':
         case 'schedule-create':
         case 'schedule-delete':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.scheduleEndpoint(endpoint, body))
         case 'memory-view':
         case 'memory-ask':
         case 'memory-forget':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.memoryEndpoint(endpoint, body))
         case 'answer-question': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
+          signal?.throwIfAborted()
           const past = rt.pastOwners.get(body.sessionId)
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
           const question = rt.own(state.questions, sessionId)
@@ -374,6 +412,7 @@ export function install(rt) {
         case 'view-reply': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
+          signal?.throwIfAborted()
           const past = rt.pastOwners.get(body.sessionId)
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
           const pending = rt.own(state.views, sessionId)
@@ -396,10 +435,16 @@ export function install(rt) {
           await rt.save()
           return ok(true)
         }
+        case 'mobile': {
+          // 手机连接设置页：只经 rt.mobileOperator 转发，模块未装载时明确拒绝而不是 unknown endpoint
+          if (typeof rt.mobileOperator !== 'function') return fail('Mobile access is unavailable on this host', 'bot/refused')
+          return ok(await rt.mobileOperator(String(body.endpoint ?? ''), body.payload))
+        }
         case 'send': {
           const text = String(body.text ?? '').trim()
           if (text === '' || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
+          signal?.throwIfAborted()
           // A Bot id or an earlier part of its own chat means the current part.
           const past = rt.pastOwners.get(body.sessionId)
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
@@ -418,11 +463,13 @@ export function install(rt) {
           if (typeof body.sessionId !== 'string') return fail('Nothing to ask', 'bot/invalid')
           if (String(body.text ?? '').trim() === '') return fail('Write a question after /btw.', 'bot/invalid')
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.askBtw({ sessionId: body.sessionId, text: String(body.text) }))
         }
         case 'btw-cancel': {
           if (typeof body.sessionId !== 'string' || typeof body.id !== 'string' || body.id === '') return fail('Nothing to cancel', 'bot/invalid')
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.cancelBtw({ sessionId: body.sessionId, id: body.id }))
         }
         case 'update-check': {
@@ -441,6 +488,7 @@ export function install(rt) {
           const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 100) : ''
           if (clientId === '') return fail('A browser poll needs a clientId', 'bot/invalid')
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.browserChannel.wait(clientId, rt.browserOpen(body.open)))
         }
         case 'browser-result':
@@ -448,6 +496,7 @@ export function install(rt) {
           return ok(rt.browserChannel.result(body))
         case 'diagnostics':
           await rt.load()
+          signal?.throwIfAborted()
           return ok(await rt.diagnostics.report(body))
         case 'diagnostics-log':
           return ok(await rt.diagnostics.logText())
@@ -464,6 +513,10 @@ export function install(rt) {
       return fail(message, code)
     }
   }
+
+  // 手机桥接（src/mobile）复用这同一个分发器，不另建端点表。
+  // 这样手机端与网页端共用同一套端点、同一套 readOnly / 权限判断和同一个返回信封。
+  rt.teamCall = handle
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => ctx.connection.fetch.register({

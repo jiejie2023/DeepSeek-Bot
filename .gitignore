@@ -27,3 +27,13 @@ node_modules/
 
 # Bytecode from the record-browser-gif encoder's local media tests.
 __pycache__/
+
+# 安卓签名资产一律不入库（源自参考仓库的 apps/mobile/signing 含 .p12/.cer，绝不引入）
+apps/mobile/signing/
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.cer
+*.pem
+!**/*.cer.sha256

@@ -100,3 +100,23 @@ their ideas; it does not contain their code.
     (packages/experimental/client-ui-voice-input), MIT: the voice chat
     records with the same steps (record, resample to 16 kHz mono, PCM16 WAV)
     before it calls the plugin's speech service.
+
+==============================================================================
+DS Bot mobile bridge and Android app (ported)
+==============================================================================
+
+Source: https://github.com/QingJ01/DS-Bot-App
+Pinned commit: 23c97f152a6c698b9c76fec3032f2be974b2aa2b (2026-10-25)
+License: Apache License, Version 2.0
+Copyright (c) QingJ01 and the DS-Bot-App contributors
+
+Ported into this repository (logic unmodified unless noted):
+  - ds-bot/src/mobile/            the /mobile/v1 bridge (auth, pairing, TLS,
+                                  projection, approvals, notifications, skills)
+  - ds-bot/src/client/mobile-*.js the desktop "phone" settings and approval views
+  - ds-bot/src/client/icons.js    the PhoneIcon function appended at the end
+  - ds-bot/test/mobile-*.test.js  the mobile test suite
+  - packages/mobile-sdk/          the dependency-free ESM client for the bridge
+
+The Android app under apps/mobile/ and the mobile SDK derive from the same
+pinned commit and stay under the Apache License, Version 2.0.
