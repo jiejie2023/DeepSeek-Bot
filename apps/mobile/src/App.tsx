@@ -138,11 +138,11 @@ function Shell() {
   useEffect(() => {
     let alive = true;
     setHostLocale(undefined);
-    setLocalePreference("host");
+    setLocalePreference("system");
     if (client && host) {
       void readCache<{ locale?: LocalePreference }>(host.serverId, "mobile-preferences")
         .then((value) => {
-          if (alive && value) setLocalePreference(value.locale || "host");
+          if (alive && value) setLocalePreference(value.locale || "system");
         })
         .catch(() => {});
       void readHostLanguage(client)

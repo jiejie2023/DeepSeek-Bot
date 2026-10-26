@@ -1052,7 +1052,9 @@ var ZH = {
   "Scan this code in DS Bot Mobile to request access.": "用 DS Bot 手机端扫描二维码申请连接。",
   "This code expires in two minutes. Share it only with your own device.": "配对码两分钟后失效，请只用于你自己的设备。",
   "Turn off phone connection before switching between IPv4 and IPv6.": "请先关闭手机连接，再切换 IPv4 或 IPv6。",
-  "Use IPv6": "使用 IPv6"
+  "Use IPv6": "使用 IPv6",
+  // 设置页标签（SETTINGS_PAGES）。
+  "Mobile devices": "手机设备"
 };
 var HOST_ERRORS = [
   [/^Model (.+) is not available\. Available: (.*)$/, "模型 $1 不可用。可用的：$2"],

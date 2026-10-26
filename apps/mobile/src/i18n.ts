@@ -164,7 +164,7 @@ Object.assign(zh, {
   "Create at least two Bots first.": "请先创建至少两个 Bot。",
 });
 export type LocalePreference = "host" | "system" | "en" | "zh";
-let preference: LocalePreference = "host";
+let preference: LocalePreference = "system";
 let hostLocale: string | undefined;
 const listeners = new Set<() => void>();
 const subscribe = (callback: () => void) => {
