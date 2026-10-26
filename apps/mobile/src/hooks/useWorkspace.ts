@@ -41,7 +41,7 @@ export function useWorkspace(client: MobileClient | null, host: Host | null) {
       await Promise.all([
         writeCache(host.serverId, "team", parsed),
         writeCache(host.serverId, "conversations", list.conversations),
-      ]);
+      ]).catch(() => { /* A cache failure does not change the live host connection. */ });
     } catch (err) {
       if (current()) {
         setOnline(false);

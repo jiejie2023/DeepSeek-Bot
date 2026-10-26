@@ -16,7 +16,14 @@ export function useNotifications(client:MobileClient|null,serverId:string|undefi
   const last=useRef<number|null>(null);
   const connected=useRef(online);connected.current=online;
   useEffect(()=>{setInbox(null);last.current=null;},[client,serverId]);
-  useEffect(()=>notificationResponses(data=>{if(data.serverId===serverId && typeof data.conversationId==='string')callback.current(data.conversationId);}),[serverId]);
+  useEffect(()=>{
+    if(!client || !serverId)return;
+    return notificationResponses(data=>{
+      if(data.serverId!==serverId || typeof data.conversationId!=='string')return false;
+      callback.current(data.conversationId);
+      return true;
+    });
+  },[client,serverId]);
   useEffect(()=>{
     if(!client || !serverId || !backgroundNotificationsAvailable)return;
     let active=true,pending=false;

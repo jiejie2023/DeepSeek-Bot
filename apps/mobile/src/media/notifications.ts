@@ -23,11 +23,27 @@ export async function foregroundNotification(title:string, data:Record<string,un
   if((await Notifications.getPermissionsAsync()).status !== 'granted')return;
   await Notifications.scheduleNotificationAsync({content:{title,body:tr("Open DS Bot to view details"),data,sound:true},trigger:null});
 }
-export function notificationResponses(callback:(data:Record<string,unknown>)=>void) {
-  const subscription=Notifications.addNotificationResponseReceivedListener(response=>callback(response.notification.request.content.data));
-  const open = (url:string|null) => { const data=backgroundNotificationLink(url); if(data)callback(data); };
+let handledInitialUrl: string | null = null;
+export function notificationResponses(callback:(data:Record<string,unknown>)=>boolean) {
+  let active = true;
+  const handled = new Set<string>();
+  const respond = (response:Notifications.NotificationResponse|null) => {
+    if (!active || !response) return;
+    const key = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+    if (handled.has(key)) return;
+    if (callback(response.notification.request.content.data) === true) {
+      handled.add(key);
+      void Notifications.clearLastNotificationResponseAsync().catch(()=>{});
+    }
+  };
+  const subscription=Notifications.addNotificationResponseReceivedListener(respond);
+  const open = (url:string|null) => {
+    if (!active || !url || url === handledInitialUrl) return;
+    const data=backgroundNotificationLink(url);
+    if(data && callback(data) === true) handledInitialUrl = url;
+  };
   const links=Linking.addEventListener('url',event=>open(event.url));
   void Linking.getInitialURL().then(open).catch(()=>{});
-  void Notifications.getLastNotificationResponseAsync().then(response=>{if(response){callback(response.notification.request.content.data);void Notifications.clearLastNotificationResponseAsync();}});
-  return ()=>{subscription.remove();links.remove();};
+  void Notifications.getLastNotificationResponseAsync().then(respond).catch(()=>{});
+  return ()=>{active=false;subscription.remove();links.remove();};
 }

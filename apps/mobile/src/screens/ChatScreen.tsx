@@ -148,6 +148,7 @@ export function ChatScreen({
     return () => { hide.remove(); show.remove(); };
   }, []);
   const bottom = useRef(true);
+  const dragging = useRef(false);
   const positioned = useRef(false);
   useEffect(() => {
     if (!chat.messages.length || positioned.current) return;
@@ -171,6 +172,13 @@ export function ChatScreen({
   const ownWaiting = waitingNames(ownWork);
   const ownWaitingStatus = ownWaiting.length ? tr("Waiting for {p0}", { p0: ownWaiting.join(dateLocale() === "zh-CN" ? "、" : ", ") }) : "";
   const displayMessages = useMemo(() => combineTurnReasoning(room && progress.id === conversation.id ? mergeGroupProgress(chat.messages, progress.rounds, room, team) : chat.messages), [chat.messages, room, team, progress, conversation.id]);
+  const latestMessage = displayMessages[displayMessages.length - 1];
+  const latestContent = latestMessage ? `${latestMessage.id}:${latestMessage.text}:${latestMessage.reasoning || ""}` : "";
+  const seenContent = useRef(latestContent);
+  useEffect(() => {
+    if (seenContent.current !== latestContent && latestContent && (!bottom.current || dragging.current)) setNewMessages(true);
+    seenContent.current = latestContent;
+  }, [latestContent]);
   const questionOwners = new Set([conversation.id, bot?.id, room?.id]);
   const questions = Object.entries(team.questions ?? {})
     .filter(([sessionId, question]) => question.conversationId
@@ -310,12 +318,16 @@ export function ChatScreen({
           flexGrow: 1,
         }}
         keyboardShouldPersistTaps="handled"
-        onLayout={() => { if (bottom.current) requestAnimationFrame(() => list.current?.scrollToEnd({animated:false})); }}
+        onLayout={() => { if (bottom.current && !dragging.current) requestAnimationFrame(() => { if (bottom.current && !dragging.current) list.current?.scrollToEnd({animated:false}); }); }}
         scrollIndicatorInsets={{ top: connectionNotice ? 0 : 76, bottom: dockHeight }}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScrollBeginDrag={() => {
+          dragging.current = true;
           positioned.current = true;
         }}
+        onScrollEndDrag={() => { dragging.current = false; }}
+        onMomentumScrollBegin={() => { dragging.current = true; }}
+        onMomentumScrollEnd={() => { dragging.current = false; }}
         onTouchStart={() => {
           positioned.current = true;
         }}
@@ -337,8 +349,7 @@ export function ChatScreen({
         }}
         scrollEventThrottle={100}
         onContentSizeChange={() => {
-          if (bottom.current) list.current?.scrollToEnd({ animated: false });
-          else setNewMessages(true);
+          if (bottom.current && !dragging.current) list.current?.scrollToEnd({ animated: false });
         }}
         ListHeaderComponent={
           <View style={{ gap: 8 }}>
@@ -573,7 +584,10 @@ export function ChatScreen({
       </View>
       </View>
       {voice ? <VoiceMode client={client} conversation={conversation} bot={bot} room={room} team={team} messages={chat.messages} running={chat.running} enabled={writable && chat.status === "connected" && !bot?.waiting} onSend={text => !writable || chat.pending || chat.busy || attachments.length ? Promise.resolve(null) : chat.sendVoice(text)} onStop={chat.cancel} onClose={() => setVoice(false)} /> : null}
-      <Sheet title={tr("Conversation options")} visible={options} onClose={() => setOptions(false)}>
+      <Sheet title={options ? tr("Conversation options") : browser ? tr("Desktop browser") : skills ? tr("Skills") : models ? tr("Choose a model") : exporting ? tr("Export conversation") : context !== null ? tr("Conversation part") : parts ? tr("Conversation history") : tr("Search conversation")} visible={options || browser || skills || models || search || parts || exporting || context !== null} onClose={() => {
+        contextGeneration.current++; setOptions(false); setBrowser(false); setSkills(false); setModels(false); setSearch(false); setParts(false); setExporting(false); setContext(null);
+      }}>
+        {options ? <>
         {chat.running && <Button secondary title={tr("Stop")} disabled={!writable || chat.busy} onPress={() => {setOptions(false);void chat.cancel();}}/>}
         {!transcription && <Notice text={tr("Voice input is unavailable. Enable and prepare speech recognition in Harness settings.")}/>}
         <Button secondary title={tr("Search conversation")} onPress={() => {setOptions(false);setSearch(true);}}/>
@@ -581,9 +595,33 @@ export function ChatScreen({
         <Button secondary title={tr("Skills")} disabled={!online || !!chat.pending || chat.busy} onPress={() => {setOptions(false);setSkills(true);}}/>
         {!!bot && <Button secondary title={tr("Desktop browser")} disabled={!online} onPress={() => {setOptions(false);setBrowser(true);}}/>}
         {!!bot && <Button secondary title={tr("Choose a model")} disabled={!writable} onPress={() => {setOptions(false);setModels(true);}}/>}
+        </> : browser ? (bot && <DesktopBrowser client={client} botId={bot.id} online={online} />) : skills ? <SkillsPanel client={client} team={team} online={online} refresh={refresh} conversationId={conversation.id} onChoose={name => { chat.setDraft(`/${name}${chat.draft ? " " + chat.draft : " "}`); setSkills(false); input.current?.focus(); }} /> : models ? <>
+        <Label muted>
+          {tr("Models are configured on your host. This changes the selected Bot's model on all devices.")}</Label>
+        <Field label={tr("Search models")} value={modelQuery} onChangeText={setModelQuery} autoCorrect={false} />
+        {bot && <ThinkingLevelPicker client={client} model={team.models.find(model=>model.ref===bot.model)} value={bot.effort} disabled={!writable || modelBusy} choose={async effort=>{await client.action("update-bot",{id:bot.id,effort});await refresh();}}/>}
+        {team.models.filter(model => [model.name, model.providerName, model.ref].join(" ").toLowerCase().includes(modelQuery.toLowerCase())).map((model) => (
+          <Button
+            secondary={bot?.model !== model.ref}
+            key={model.ref}
+            title={`${model.name} · ${model.providerName || model.ref}`}
+            disabled={!writable || modelBusy}
+            onPress={() => chooseModel(model.ref)}
+          />
+        ))}
+        {!team.models.length && (
+          <Notice text={tr("Add a model provider in DSH on your computer, then refresh the team.")} />
+        )}
+        </> : <>
+        {exporting ? <ConversationExport client={client} conversation={conversation} online={online} /> : search ? <HistorySearchPanel client={client} conversation={conversation} online={online} onSelectMessage={message => void openContext(message)} /> : parts ? <><Button title={tr("Export conversation")} secondary disabled={!online} onPress={() => { setParts(false); setExporting(true); }} /><ConversationPartsPanel client={client} conversation={conversation} online={online} onSelectPart={sessionId => void openPart(sessionId)} /></> : <>
+          <Notice error text={contextError} />
+          {contextBusy ? <Label muted>{tr("Loading conversation…")}</Label> : null}
+          {contextCursor ? <Button title={tr("Load earlier in this part")} secondary disabled={contextBusy || !online} onPress={() => void earlierContext()} /> : null}
+          {context?.map(message => <MessageBubble key={message.id} message={message} client={client} conversationId={conversation.id} serverId={host.serverId} bot={authorBot(message)} bots={team.bots} showAuthor={!!room} onReply={writable && !chat.pending ? text => { contextGeneration.current++; setContext(null); reply(text); } : undefined} />)}
+          {!contextBusy && !contextError && !context?.length ? <Label muted>{tr("No messages in this part.")}</Label> : null}
+        </>}
+        </>}
       </Sheet>
-      <Sheet title={tr("Desktop browser")} visible={browser} onClose={() => setBrowser(false)}>{bot && <DesktopBrowser client={client} botId={bot.id} online={online} />}</Sheet>
-      <Sheet title={tr("Skills")} visible={skills} onClose={() => setSkills(false)}><SkillsPanel client={client} team={team} online={online} refresh={refresh} conversationId={conversation.id} onChoose={name => { chat.setDraft(`/${name}${chat.draft ? " " + chat.draft : " "}`); setSkills(false); input.current?.focus(); }} /></Sheet>
       <Sheet
         title={tr("Previous pairing sends")}
         visible={previousSends}
@@ -615,17 +653,6 @@ export function ChatScreen({
             }}
           />
         )}
-      </Sheet>
-      <Sheet title={exporting ? tr("Export conversation") : context !== null ? tr("Conversation part") : parts ? tr("Conversation history") : tr("Search conversation")} visible={search || parts || exporting || context !== null} onClose={() => {
-        contextGeneration.current++; setSearch(false); setParts(false); setExporting(false); setContext(null);
-      }}>
-        {exporting ? <ConversationExport client={client} conversation={conversation} online={online} /> : search ? <HistorySearchPanel client={client} conversation={conversation} online={online} onSelectMessage={message => void openContext(message)} /> : parts ? <><Button title={tr("Export conversation")} secondary disabled={!online} onPress={() => { setParts(false); setExporting(true); }} /><ConversationPartsPanel client={client} conversation={conversation} online={online} onSelectPart={sessionId => void openPart(sessionId)} /></> : <>
-          <Notice error text={contextError} />
-          {contextBusy ? <Label muted>{tr("Loading conversation…")}</Label> : null}
-          {contextCursor ? <Button title={tr("Load earlier in this part")} secondary disabled={contextBusy || !online} onPress={() => void earlierContext()} /> : null}
-          {context?.map(message => <MessageBubble key={message.id} message={message} client={client} conversationId={conversation.id} serverId={host.serverId} bot={authorBot(message)} bots={team.bots} showAuthor={!!room} onReply={writable && !chat.pending ? text => { contextGeneration.current++; setContext(null); reply(text); } : undefined} />)}
-          {!contextBusy && !contextError && !context?.length ? <Label muted>{tr("No messages in this part.")}</Label> : null}
-        </>}
       </Sheet>
       <Sheet
         title={tr("Remove queued message")}
@@ -659,28 +686,6 @@ export function ChatScreen({
             }}
           />
         ))}
-      </Sheet>
-      <Sheet
-        title={tr("Choose a model")}
-        visible={models}
-        onClose={() => setModels(false)}
-      >
-        <Label muted>
-          {tr("Models are configured on your host. This changes the selected Bot's model on all devices.")}</Label>
-        <Field label={tr("Search models")} value={modelQuery} onChangeText={setModelQuery} autoCorrect={false} />
-        {bot && <ThinkingLevelPicker client={client} model={team.models.find(model=>model.ref===bot.model)} value={bot.effort} disabled={!writable || modelBusy} choose={async effort=>{await client.action("update-bot",{id:bot.id,effort});await refresh();}}/>}
-        {team.models.filter(model => [model.name, model.providerName, model.ref].join(" ").toLowerCase().includes(modelQuery.toLowerCase())).map((model) => (
-          <Button
-            secondary={bot?.model !== model.ref}
-            key={model.ref}
-            title={`${model.name} · ${model.providerName || model.ref}`}
-            disabled={!writable || modelBusy}
-            onPress={() => chooseModel(model.ref)}
-          />
-        ))}
-        {!team.models.length && (
-          <Notice text={tr("Add a model provider in DSH on your computer, then refresh the team.")} />
-        )}
       </Sheet>
       <ReferencePicker client={client} conversationId={conversation.id} bots={team.bots} visible={referencePicker} online={writable && !chat.pending && !chat.busy} pick={pickReference} close={() => setReferencePicker(false)}/>
       </View>
