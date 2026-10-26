@@ -23,6 +23,7 @@ const ACTIONS = {
   folders: [], 'folder-list': ['path'],
   'memory-view': ['botId', 'summarize', 'regenerate'], 'memory-forget': ['botId', 'scope', 'topic', 'text'], 'memory-ask': ['botId', 'text'],
   'answer-question': ['sessionId', 'questionId', 'answer'], 'dismiss-question': ['sessionId'],
+  'view-reply': ['conversationId', 'sessionId', 'viewId', 'action', 'values'], 'dismiss-view': ['conversationId', 'sessionId', 'viewId'],
   'room-progress': ['roomId'], 'room-continue': ['roomId'], usage: ['timeZone'], models: [], efforts: ['ref'],
   queue: ['conversationId'], 'queue-remove': ['conversationId', 'sessionId', 'itemId'],
   'set-flags': ['id', 'pinned', 'hidden'], 'set-prefs': ['theme', 'accent', 'motion'],
@@ -51,7 +52,7 @@ const MUTATION_ACTIONS = new Set([
   'create-bot', 'update-bot', 'duplicate-bot', 'delete-bot', 'set-main',
   'create-room', 'update-room', 'delete-room', 'set-flags', 'set-prefs', 'room-continue',
   'exchange', 'queue-remove', 'memory-forget', 'bot-capability', 'stop-member-work',
-  'answer-question', 'dismiss-question', 'schedule-create', 'schedule-delete',
+  'answer-question', 'dismiss-question', 'view-reply', 'dismiss-view', 'schedule-create', 'schedule-delete',
   'connector-connect', 'connector-retry', 'connector-disconnect', 'browser-control',
   'secret-set', 'secret-allow', 'secret-cancel', 'secret-update', 'secret-delete',
   'add-agent', 'agent-session', 'agent-archive', 'agent-rename', 'remove-agent',
@@ -203,6 +204,9 @@ export function createAdapter(rt) {
     return summariesJob
   }
   const redact = value => typeof rt.redactSecrets === 'function' ? rt.redactSecrets(value) : value
+  const redactContent = value => typeof value === 'string' ? redact(value) : Array.isArray(value) ? value.map(redactContent)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactContent(entry)])) : value
+  const redactFields = (value, fields) => ({ ...value, ...Object.fromEntries(fields.filter(key => typeof value[key] === 'string').map(key => [key, redact(value[key])])) })
   const management = createManagement(rt, { optional, conversation, redact })
   const connectors = value => (Array.isArray(value) ? value : []).filter(item => item && typeof item.id === 'string').map(item => ({
     id: item.id, name: String(item.name ?? item.id), state: String(item.state ?? 'off'), account: typeof item.account === 'string' ? item.account : null,
@@ -224,7 +228,8 @@ export function createAdapter(rt) {
     // Explicit selection keeps future host-only administration fields off phones.
     const selected = Object.fromEntries(['revision', 'workspaceId', 'colors', 'modelsKey', 'mainBotId', 'mainBotIds', 'bots', 'rooms', 'models', 'defaultModel', 'questions',
       'activity', 'permissions', 'memory', 'memoryNews', 'memoryReviews', 'readOnly', 'prefs'].filter(key => value[key] !== undefined).map(key => [key, value[key]]))
-    selected.rooms = (value.rooms ?? []).map(room => ({ ...room, parts: [] }))
+    selected.bots = (value.bots ?? []).map(bot => redactFields(bot, ['instructions', 'brief']))
+    selected.rooms = (value.rooms ?? []).map(room => ({ ...redactFields(room, ['notice', 'preview']), parts: [] }))
     selected.agents = agentView(value.agents)
     const questionOwners = new Map([
       ...(value.bots ?? []).flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])].map(id => [id, bot.id])),
@@ -232,7 +237,10 @@ export function createAdapter(rt) {
       ...selected.agents.flatMap(agent => agent.sessions.map(id => [id, `agent:${agent.id}:${id}`])),
     ])
     selected.questions = Object.fromEntries(Object.entries(value.questions ?? {}).filter(([id]) => questionOwners.has(id))
-      .map(([sessionId, question]) => [sessionId, { ...question, sessionId, conversationId: questionOwners.get(sessionId) }]))
+      .map(([sessionId, question]) => [sessionId, { ...redactContent(question), sessionId, conversationId: questionOwners.get(sessionId) }]))
+    const viewOwners = new Map((value.bots ?? []).filter(bot => bot.sessionId).map(bot => [bot.sessionId, bot.id]))
+    selected.views = Object.fromEntries(Object.entries(value.views ?? {}).filter(([id, pending]) => viewOwners.has(id) && pending && typeof pending.id === 'string')
+      .map(([sessionId, pending]) => [sessionId, { ...Object.fromEntries(['id', 'callId', 'title', 'view', 'askedAt'].filter(key => pending[key] !== undefined).map(key => [key, ['title', 'view'].includes(key) ? redactContent(pending[key]) : pending[key]])), sessionId, conversationId: viewOwners.get(sessionId) }]))
     selected.connectors = connectors(value.connectors)
     selected.secrets = (value.secrets ?? []).map(secretView).filter(Boolean)
     selected.secretRequests = Object.fromEntries(Object.entries(value.secretRequests ?? {}).filter(([id]) => value.bots?.some(bot => bot.id === id))
@@ -524,9 +532,16 @@ export function createAdapter(rt) {
     if (body.admin !== undefined && body.admin !== null && body.admin !== '') requireBot(body.admin)
     if (body.sessionId !== undefined && endpoint !== 'schedule-delete' && !owned.has(body.sessionId) && !questionSession) throw error(404, 'mobile/not-found', 'This Session is not on the team')
     if (['answer-question', 'dismiss-question'].includes(endpoint) && !owned.has(body.sessionId) && !questionSession) throw error(404, 'mobile/not-found', 'This Session is not on the team')
+    if (endpoint === 'view-reply' || endpoint === 'dismiss-view') {
+      const bot = (view.bots ?? []).find(bot => bot.sessionId === body.sessionId)
+      if (!bot || (body.conversationId !== undefined && ![bot.id, `bot:${bot.id}`].includes(body.conversationId))) throw error(404, 'mobile/not-found', 'This view does not belong to the conversation')
+      const pending = view.views?.[body.sessionId]
+      if (!pending || typeof body.viewId !== 'string' || pending.id !== body.viewId) throw error(409, 'bot/stale', 'This view is no longer open')
+    }
+    if (MUTATION_ACTIONS.has(endpoint)) await requireAuthorizedDevice(caller)
     scoped.throwIfAborted()
     let result
-    try { result = await team(endpoint, body) } catch (cause) {
+    try { result = await team(endpoint, body, scoped) } catch (cause) {
       if (['secret-set', 'connector-connect'].includes(endpoint)) throw error(cause.status ?? 400, cause.code ?? 'mobile/rejected', 'The host refused this credential change. Check the name, value, and scope.')
       throw cause
     }

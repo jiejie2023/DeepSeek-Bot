@@ -794,3 +794,61 @@ test('a read-only action does not consult device authorization', async () => {
   assert.equal(calls.some(call => call[1] === 'schedules'), true)
   adapter.dispose()
 })
+
+test('private pending views reach phones without hidden or foreign session cards', async () => {
+  const { adapter, view } = fixture()
+  view.views = {
+    new: { id: 'v1', callId: 'call', title: 'Choose', view: { type: 'confirm', id: 'confirm' }, askedAt: 1, private: 'do-not-copy' },
+    'hidden-member-session': { id: 'hidden', view: { type: 'text', text: 'hidden' } },
+    foreign: { id: 'foreign' },
+  }
+  const result = await adapter.state()
+  assert.equal(result.views.new.conversationId, 'b1')
+  assert.equal(result.views.new.sessionId, 'new')
+  assert.equal(result.views.new.callId, 'call')
+  assert.equal(result.views.new.private, undefined)
+  assert.deepEqual(Object.keys(result.views), ['new'])
+})
+
+test('view answers and dismissals validate the current card and its private conversation', async () => {
+  const { adapter, view, calls } = fixture()
+  view.views = { new: { id: 'v1', view: { type: 'confirm', id: 'confirm' } } }
+  await adapter.action('view-reply', { conversationId: 'b1', sessionId: 'new', viewId: 'v1', action: 'confirm', values: { confirmed: true } })
+  assert.equal(calls.at(-1)[1], 'view-reply')
+  await adapter.action('dismiss-view', { conversationId: 'b1', sessionId: 'new', viewId: 'v1' })
+  assert.equal(calls.at(-1)[1], 'dismiss-view')
+  await assert.rejects(adapter.action('view-reply', { conversationId: 'b2', sessionId: 'new', viewId: 'v1' }), { status: 404 })
+  await assert.rejects(adapter.action('view-reply', { conversationId: 'b1', sessionId: 'new', viewId: 'expired' }), { status: 409 })
+  await assert.rejects(adapter.action('dismiss-view', { sessionId: 'hidden-member-session', viewId: 'v1' }), { status: 404 })
+  delete view.views.new
+  await assert.rejects(adapter.action('dismiss-view', { sessionId: 'new', viewId: 'v1' }), { status: 409 })
+})
+
+test('revocation during the state read prevents the final host mutation', async () => {
+  const { adapter, rt, view, calls } = fixture()
+  let authorized = true
+  adapter.setApprovalBroker(undefined, { authorizeDevice: () => authorized })
+  rt.teamCall = async (endpoint, payload, signal) => {
+    calls.push(['team', endpoint, payload, signal])
+    if (endpoint === 'state') authorized = false
+    return { ok: true, value: view }
+  }
+  await assert.rejects(adapter.action('update-room', { id: 'room', name: 'No change' }, undefined, { deviceId: 'phone' }), { status: 401 })
+  assert.equal(calls.some(call => call[1] === 'update-room'), false)
+})
+
+test('known secrets are redacted from Bot descriptions, group notices and pending cards', async () => {
+  const { adapter, rt, view } = fixture()
+  const secret = 'ds-bot-test-private'
+  rt.redactSecrets = text => text.replaceAll(secret, '[redacted]')
+  view.bots[0].instructions = `Instruction ${secret}`
+  view.bots[0].brief = `Brief ${secret}`
+  view.rooms[0].notice = `Notice ${secret}`
+  view.rooms[0].preview = `Preview ${secret}`
+  view.questions.new = { id: 'q', question: `Question ${secret}`, options: [{ label: secret }] }
+  view.views = { new: { id: 'v', title: secret, view: { type: 'text', text: secret } } }
+  const state = await adapter.state()
+  assert.equal(JSON.stringify(state).includes(secret), false)
+  assert.equal(state.views.new.view.text, '[redacted]')
+  assert.equal(view.bots[0].instructions, `Instruction ${secret}`)
+})
