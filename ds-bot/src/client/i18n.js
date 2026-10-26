@@ -1007,6 +1007,29 @@ const ZH = {
   "Use IPv6": "使用 IPv6",
   // 设置页标签（SETTINGS_PAGES）。
   "Mobile devices": "手机设备",
+  // 手机连接设置页其余文案（取自 QingJ01/DS-Bot-App）。
+  "Approve": "批准",
+  "Deny": "拒绝",
+  "Retry": "重试",
+  "Phone connection enabled": "连接已启用",
+  "Phone connection off": "连接未启用",
+  "Enable the connection, scan the QR code, then approve your phone.": "启用连接后，用手机扫码，再在这里批准设备。",
+  "Open DS Bot Mobile and scan this QR code.": "打开 DS Bot 手机端，扫描此二维码。",
+  "Confirm the connection on your phone.": "在手机上确认连接。",
+  "Approve your phone in Pending requests below.": "在下方「待批准请求」中批准你的手机。",
+  "Pending requests · {count}": "待批准请求 · {count}",
+  "Paired devices · {count}": "已配对设备 · {count}",
+  "Public IPv6": "公网 IPv6",
+  "Local IPv6": "内网 IPv6",
+  "No usable IPv6 address is available.": "当前没有可用的 IPv6 地址。",
+  "No usable IPv4 address is available.": "当前没有可用的 IPv4 地址。",
+  "Could not refresh mobile devices.": "无法刷新手机设备。",
+  "Enable phone connection": "启用手机连接",
+  "Create pairing code": "生成配对码",
+  "Hide pairing code": "隐藏配对码",
+  "Turn off phone connection": "关闭手机连接",
+  "Revoke access": "撤销连接权限",
+  "Mobile access is disabled by this host configuration.": "此主机配置禁止手机连接。",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the
