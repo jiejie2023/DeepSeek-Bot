@@ -84,6 +84,15 @@ export function MobileDevicesPage() {
         h('span', { className: 'bt-mobile-mark', 'aria-hidden': true }, h(PhoneIcon)),
         h('div', { className: 'bt-set-copy' }, h('h3', null, t('Connect your phone')), h('p', { className: 'bt-set-hint' }, t('Connect over your local network or a reachable IPv6 address. No domain or extra app is needed.'))),
         h('span', { className: 'bt-mobile-status', 'data-enabled': enabled || undefined }, t(enabled ? 'Phone connection enabled' : 'Phone connection off'))),
+      row('mode', t('Access mode'),
+        state.mode?.publicUrl ? t('Phones connect through this HTTPS address.') : t('Pick an address on this computer.'),
+        h('div', { className: 'bt-mobile-actions' },
+          state.mode?.publicUrl
+            ? button('Use a network address', () => { if (window.confirm(t('Switch to the network-address mode? Phones must pair again.'))) void run('mode.set', { publicUrl: '' }) })
+            : button('Use an HTTPS address', () => {
+              const url = window.prompt(t('HTTPS address of this host (leave empty for the network-address mode)'), state.mode?.publicUrl ?? '')
+              if (url !== null) void run('mode.set', { publicUrl: url })
+            }))),
       state.https?.provider === 'local' ? row('ipv6', t('Use IPv6'), networkHint,
         h('button', { type: 'button', role: 'switch', className: 'bt-switch', 'aria-label': t('Use IPv6'), 'aria-checked': family === 6,
           disabled: networkLocked || !canSwitchFamily, onClick: () => { setNetworkFamily(family === 6 ? 4 : 6); setAddress('') } },

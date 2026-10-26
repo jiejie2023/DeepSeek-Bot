@@ -1077,7 +1077,14 @@ var ZH = {
   "Hide pairing code": "隐藏配对码",
   "Turn off phone connection": "关闭手机连接",
   "Revoke access": "撤销连接权限",
-  "Mobile access is disabled by this host configuration.": "此主机配置禁止手机连接。"
+  "Mobile access is disabled by this host configuration.": "此主机配置禁止手机连接。",
+  "Access mode": "接入方式",
+  "Phones connect through this HTTPS address.": "手机通过这个 HTTPS 地址连接。",
+  "Pick an address on this computer.": "在这台电脑的网卡地址里选一个。",
+  "Use a network address": "改用网卡地址",
+  "Switch to the network-address mode? Phones must pair again.": "切换成网卡地址模式？手机需要重新配对。",
+  "Use an HTTPS address": "改用 HTTPS 地址",
+  "HTTPS address of this host (leave empty for the network-address mode)": "这台电脑的 HTTPS 地址（留空则改用网卡地址）"
 };
 var HOST_ERRORS = [
   [/^Model (.+) is not available\. Available: (.*)$/, "模型 $1 不可用。可用的：$2"],
@@ -14397,6 +14404,21 @@ function MobileDevicesPage() {
         (0, import_react33.createElement)("span", { className: "bt-mobile-mark", "aria-hidden": true }, (0, import_react33.createElement)(PhoneIcon)),
         (0, import_react33.createElement)("div", { className: "bt-set-copy" }, (0, import_react33.createElement)("h3", null, t("Connect your phone")), (0, import_react33.createElement)("p", { className: "bt-set-hint" }, t("Connect over your local network or a reachable IPv6 address. No domain or extra app is needed."))),
         (0, import_react33.createElement)("span", { className: "bt-mobile-status", "data-enabled": enabled || void 0 }, t(enabled ? "Phone connection enabled" : "Phone connection off"))
+      ),
+      row(
+        "mode",
+        t("Access mode"),
+        state.mode?.publicUrl ? t("Phones connect through this HTTPS address.") : t("Pick an address on this computer."),
+        (0, import_react33.createElement)(
+          "div",
+          { className: "bt-mobile-actions" },
+          state.mode?.publicUrl ? button("Use a network address", () => {
+            if (window.confirm(t("Switch to the network-address mode? Phones must pair again."))) void run2("mode.set", { publicUrl: "" });
+          }) : button("Use an HTTPS address", () => {
+            const url = window.prompt(t("HTTPS address of this host (leave empty for the network-address mode)"), state.mode?.publicUrl ?? "");
+            if (url !== null) void run2("mode.set", { publicUrl: url });
+          })
+        )
       ),
       state.https?.provider === "local" ? row(
         "ipv6",

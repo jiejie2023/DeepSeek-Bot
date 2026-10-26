@@ -1030,6 +1030,13 @@ const ZH = {
   "Turn off phone connection": "关闭手机连接",
   "Revoke access": "撤销连接权限",
   "Mobile access is disabled by this host configuration.": "此主机配置禁止手机连接。",
+  "Access mode": "接入方式",
+  "Phones connect through this HTTPS address.": "手机通过这个 HTTPS 地址连接。",
+  "Pick an address on this computer.": "在这台电脑的网卡地址里选一个。",
+  "Use a network address": "改用网卡地址",
+  "Switch to the network-address mode? Phones must pair again.": "切换成网卡地址模式？手机需要重新配对。",
+  "Use an HTTPS address": "改用 HTTPS 地址",
+  "HTTPS address of this host (leave empty for the network-address mode)": "这台电脑的 HTTPS 地址（留空则改用网卡地址）",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the

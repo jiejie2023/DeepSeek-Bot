@@ -1,4 +1,5 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import QRCode from 'qrcode'
 import { createAdapter } from './adapter.js'
 import { createMobileServer } from './server.js'
@@ -8,6 +9,20 @@ import { createLocalHttps } from './local-https.js'
 
 export function install(rt) {
   const config = rt.config.mobile ?? {}
+  // The settings page can pick how phones reach this host: the one-click address
+  // picker (no publicUrl) or a fixed HTTPS origin behind a reverse proxy
+  // (Tailscale Serve, a tunnel). That choice lives beside the certificate so it
+  // survives restarts and never rewrites the DSH profile config.
+  const modeFile = join(rt.home, 'mobile', 'mode.json')
+  let mode = (() => { try { return JSON.parse(readFileSync(modeFile, 'utf8')) ?? {} } catch { return {} } })()
+  const fixedUrl = () => Object.hasOwn(mode, 'publicUrl') ? mode.publicUrl ?? undefined : config.publicUrl ?? undefined
+  const withMode = options => {
+    if (!Object.hasOwn(mode, 'publicUrl')) return options
+    const next = { ...options }
+    if (mode.publicUrl) next.publicUrl = mode.publicUrl
+    else delete next.publicUrl
+    return next
+  }
   let service, adapter, stopApprovals, skillLibrary, local, ready, failure
   let stopped = false
   let operation = Promise.resolve()
@@ -26,6 +41,7 @@ export function install(rt) {
   }
   const start = async options => {
     owner()
+    const chosen = withMode(options)
     try {
       const skills = rt.ctx.get('skills')
       if (skills?.registerProvider) {
@@ -40,7 +56,7 @@ export function install(rt) {
         redact: text => rt.redactSecrets?.(text) ?? text,
       })
       adapter.setApprovalBroker(approvals, { authorizeDevice: deviceId => service?.isDeviceAuthorized(deviceId) ?? false })
-      service = await createMobileServer({ home: join(rt.home, 'mobile'), config: options, adapter })
+      service = await createMobileServer({ home: join(rt.home, 'mobile'), config: chosen, adapter })
       owner()
       rt.mobileApprovalsView = () => approvals.list().requests.flatMap(request => {
         const botId = rt.chatOwners?.get(request.sessionId)
@@ -60,7 +76,8 @@ export function install(rt) {
       await rt.load()
       if (stopped) return
       local = await createLocalHttps({ home: join(rt.home, 'mobile'), config, load: () => rt.load(), readOnly: () => rt.readOnly(), start, stop })
-      if (config.enabled === true && (config.publicUrl || config.certPath || config.keyPath || config.devAllowInsecure)) await start(config)
+      const boot = withMode(config)
+      if (boot.enabled === true && (boot.publicUrl || boot.certPath || boot.keyPath || boot.devAllowInsecure)) await start(boot)
       else await local.restore()
     })().catch(() => { failure = 'Mobile access could not start. Check its port, HTTPS settings, and the Bot team lock.' })
     return () => {
@@ -72,10 +89,31 @@ export function install(rt) {
     await ready
     if (endpoint === 'status') {
       const state = service ? await service.operator('status') : { enabled: false, pending: [], devices: [] }
-      return { ...state, https: local?.snapshot(), ...(failure ? { error: failure } : {}), ...(config.enabled === false ? { locked: true } : {}) }
+      return { ...state, https: local?.snapshot(), mode: { publicUrl: fixedUrl() ?? null }, ...(failure ? { error: failure } : {}), ...(config.enabled === false ? { locked: true } : {}) }
     }
     if (endpoint === 'approvals.list' && !service) return { requests: [] }
     owner()
+    // Switch how phones reach this host without touching the DSH profile config:
+    // an empty publicUrl returns to the block-by-address UI, an https origin keeps
+    // the reverse proxy (Tailscale Serve, tunnel) in front of this bridge.
+    if (endpoint === 'mode.set') {
+      const work = operation.then(async () => {
+        owner()
+        const raw = payload?.publicUrl
+        const next = typeof raw === 'string' ? raw.trim() : ''
+        if (next && !/^https:\/\/[^\s/]+$/.test(next)) throw refused('Use an https:// host without a path, for example https://name.tailnet.ts.net')
+        if (next) mode = { ...mode, publicUrl: next }
+        else delete mode.publicUrl
+        mkdirSync(dirname(modeFile), { recursive: true })
+        writeFileSync(modeFile, JSON.stringify(mode))
+        await stop()
+        failure = undefined
+        if (next || config.enabled === true) await start(config)
+        return { publicUrl: fixedUrl() ?? null }
+      })
+      operation = work.catch(() => {})
+      return work
+    }
     if (endpoint === 'https.enable' || endpoint === 'https.disable') {
       if (!local) throw refused(failure ?? 'Mobile connection setup is unavailable.')
       const work = operation.then(async () => {
@@ -96,3 +134,4 @@ export function install(rt) {
     return { ...pairing, qrDataUrl: await QRCode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 2, width: 256 }) }
   }
 }
+
