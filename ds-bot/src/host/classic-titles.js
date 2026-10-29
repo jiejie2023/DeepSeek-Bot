@@ -24,7 +24,7 @@ const currentTitles = (rt) => {
 // The cache avoids duplicate rename events on every sidebar poll. Failed sessions
 // are not cached and can retry on the next read. Each runtime keeps its own cache.
 export function syncClassicTitles(rt) {
-  if (rt.readOnly() !== undefined) return Promise.resolve()
+  if (rt.readOnly() !== undefined || typeof rt.ctx.sessionTitle?.rename !== 'function') return Promise.resolve()
   const pending = running.get(rt)
   // A request made during a pass may carry a new Bot name or current session.
   // Recheck after that pass settles, rather than merely joining its old snapshot.

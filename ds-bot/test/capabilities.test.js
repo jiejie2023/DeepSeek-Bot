@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { syncClassicTitles } from '../src/host/classic-titles.js'
 import { expandCapabilityNames, validateCapabilityName } from '../src/host/capabilities.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -67,8 +68,12 @@ async function setup({ state = team(), secret, beforeLoad } = {}) {
   const mcpPlugin = { name: 'mcp-client', apply() {} }
   const loader = { import: async () => ({ default: mcpPlugin }), unwrapExports: exports => exports.default }
   const ctx = fakeContext({ services: { loader } })
+  const renamed = []
+  const titleWarnings = []
   const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
-  ctx.sessionTitle = { rename: async () => {} }
+  const warn = rt.warn
+  rt.warn = (...args) => { if (String(args[0]).includes('Classic title')) titleWarnings.push(args); warn(...args) }
+  ctx.sessionTitle = { rename: async (session, title) => renamed.push([session.id, title]) }
   rt.resolveAgent = async sessionId => ({ session: { id: sessionId } })
   beforeLoad?.({ ctx, rt, mounts, skills, mcpPlugin })
   await rt.load()
@@ -76,6 +81,8 @@ async function setup({ state = team(), secret, beforeLoad } = {}) {
     home,
     ctx,
     rt,
+    renamed,
+    titleWarnings,
     mounts,
     skills,
     mcpPlugin,
@@ -194,6 +201,8 @@ test('read-only secret reload does not requeue capability reconciliation', async
 
 test('startup and empty-to-nonempty attachments track existing Bot Agents', async t => {
   const state = team()
+  state.rooms.room.named = true
+  state.rooms.room.name = 'Desk'
   state.capabilities = { items: { echo: { ...mcp('echo'), approved: true, createdBy: 'chief', createdAt: 1, updatedAt: 1 } } }
   state.bots.chief.capabilities = ['echo']
   const resolved = []
@@ -210,15 +219,18 @@ test('startup and empty-to-nonempty attachments track existing Bot Agents', asyn
     },
   })
   t.after(() => env.dispose())
-  await new Promise(resolve => setImmediate(resolve))
+  await syncClassicTitles(env.rt)
   await env.rt.scheduleCapabilitiesReconcile()
-  assert.deepEqual(resolved, ['chief', 'room-chief'])
+  assert.deepEqual(env.renamed, [['chief', '【私聊】Chief'], ['worker', '【私聊】Worker'], ['helper', '【私聊】Helper'], ['room-chief', '【群聊】Chief']])
+  assert.deepEqual(env.titleWarnings, [])
+  assert.deepEqual([...resolved].sort(), ['chief', 'chief', 'helper', 'room-chief', 'room-chief', 'worker'])
   assert.deepEqual(env.mounts.map(mount => mount.sessionId), ['chief', 'room-chief'])
+  const startupResolved = [...resolved]
 
   await env.rt.changeCapabilityAttachment('attach', { name: 'echo' }, 'worker')
   await env.rt.capabilityEndpoint('bot-capability', { botId: 'helper', name: 'echo', attached: true })
   await env.rt.scheduleCapabilitiesReconcile()
-  assert.deepEqual(resolved, ['chief', 'room-chief', 'worker', 'helper'])
+  assert.deepEqual(resolved, [...startupResolved, 'worker', 'helper'])
   assert.deepEqual(env.mounts.filter(mount => !mount.disposed).map(mount => mount.sessionId), ['chief', 'room-chief', 'worker', 'helper'])
 })
 

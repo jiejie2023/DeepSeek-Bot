@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { syncClassicTitles } from '../src/host/classic-titles.js'
 import { fakeContext } from './fake-ctx.js'
 
 const QUESTION = 'ask_user_question'
@@ -30,6 +31,8 @@ async function setup({ served = ['read', 'ask_user', QUESTION], goals } = {}) {
   writeFileSync(join(home, 'state.json'), JSON.stringify(team()))
   const ctx = fakeContext({ services: goals === undefined ? {} : { goals } })
   const agents = new Map()
+  const renamed = []
+  const titleWarnings = []
   const hidden = []
   const sent = []
   let sessions = 0
@@ -67,18 +70,26 @@ async function setup({ served = ['read', 'ask_user', QUESTION], goals } = {}) {
       resolveAgent: async id => ({ agent: await agentFor(id) }),
       selectModel: async () => {},
     },
-    sessionTitle: { rename: async () => {} },
+    sessionTitle: { rename: async (session, title) => renamed.push([session.id, title]) },
     sessions: { flush: async () => {} },
   })
   const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const warn = rt.warn
+  rt.warn = (...args) => { if (String(args[0]).includes('Classic title')) titleWarnings.push(args); warn(...args) }
   await rt.load()
+  await syncClassicTitles(rt)
+  assert.deepEqual(renamed, [['room', 'You, Chief, Writer'], ['chief', '【私聊】Chief'], ['writer', '【私聊】Writer'], ['room-writer', '【群聊】Writer']])
+  assert.deepEqual(titleWarnings, [])
+  const denied = [QUESTION, 'create_goal', 'update_goal', 'get_goal'].filter(name => served.includes(name))
+  assert.deepEqual(hidden, denied.length ? ['chief', 'writer', 'room-writer'].map(id => [id, denied]) : [])
+  const startupHidden = hidden.map(([id, deny]) => [id, [...deny]])
   const guard = (name, sessionId) => ctx.guards.map(check => check({ name, agent: sessionId === undefined ? undefined : { id: sessionId } })).find(reason => reason !== undefined)
   const hiddenIn = id => hidden.filter(([sessionId, deny]) => sessionId === id && deny.includes(QUESTION))
   const stop = async () => {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, rt, agentFor, hidden, hiddenIn, guard, sent, stop }
+  return { ctx, rt, agentFor, hidden, startupHidden, hiddenIn, guard, sent, stop }
 }
 
 // DSH's goal service, holding one goal per Session; block() records what was asked.
@@ -113,6 +124,30 @@ const until = async (check) => {
     await new Promise(resolve => setTimeout(resolve, 20))
   }
 }
+
+test('startup effect migrates classic titles and bootstrap retries a failed title', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-title-effect-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team()))
+  const ctx = fakeContext()
+  const attempts = []
+  const warnings = []
+  ctx.sessionController = { resolveAgent: async id => ({ agent: { id, session: { id } } }) }
+  let failed = false
+  ctx.sessionTitle = { rename: async (session, title) => {
+    attempts.push([session.id, title])
+    if (session.id === 'chief' && !failed) { failed = true; throw new Error('temporary rename failure') }
+  } }
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const warn = rt.warn
+  rt.warn = (...args) => { if (String(args[0]).includes('Classic title')) warnings.push(args); warn(...args) }
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await until(() => attempts.length === 4 && warnings.length === 1)
+  assert.deepEqual(attempts, [['room', 'You, Chief, Writer'], ['chief', '【私聊】Chief'], ['writer', '【私聊】Writer'], ['room-writer', '【群聊】Writer']])
+  assert.match(warnings[0][2].message, /temporary rename failure/)
+  await rt.bootstrap()
+  assert.deepEqual(attempts, [['room', 'You, Chief, Writer'], ['chief', '【私聊】Chief'], ['writer', '【私聊】Writer'], ['room-writer', '【群聊】Writer'], ['chief', '【私聊】Chief']])
+  assert.equal(warnings.length, 1)
+})
 
 test('a Bot\'s own chat and its group Session lose dsh\'s blocking question tool; other Sessions keep it', async (t) => {
   const { agentFor, hidden, hiddenIn, stop } = await setup()
@@ -170,15 +205,17 @@ test('a new Bot that rules out question tools opens without one and cannot block
   assert.match(guard(QUESTION, receiver.id), /Bots cannot use ask_user_question/)
 })
 
-// Fei2411/DeepSeek-Bot#133: /goal in a group chat started DSH's goal rounds, which the
+// Fei2411/DS-Bot#133: /goal in a group chat started DSH's goal rounds, which the
 // group never answered, so round after round ran and showed the raw goal prompt.
 test('a Bot\'s chat and its group Sessions lose the goal tools; other Sessions keep them', async (t) => {
-  const { agentFor, hidden, stop } = await setup({ served: ['read', 'ask_user', QUESTION, 'create_goal', 'update_goal', 'get_goal'] })
+  const { agentFor, hidden, startupHidden, stop } = await setup({ served: ['read', 'ask_user', QUESTION, 'create_goal', 'update_goal', 'get_goal'] })
   t.after(stop)
   for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
   // A DSH Agent Session ('plain') has its own mask, which leaves the goal tools.
+  assert.deepEqual(hidden, [...startupHidden, ['plain', ['ask_user']]])
   assert.deepEqual(hidden.filter(([, deny]) => deny.includes('create_goal')), [
     ['chief', [QUESTION, 'create_goal', 'update_goal', 'get_goal']],
+    ['writer', [QUESTION, 'create_goal', 'update_goal', 'get_goal']],
     ['room-writer', [QUESTION, 'create_goal', 'update_goal', 'get_goal']],
   ])
 })

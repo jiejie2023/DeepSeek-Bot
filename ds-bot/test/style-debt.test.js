@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { RADII, checks, findStyles, lowered, readDebt } from '../scripts/style-debt.mjs'
 
 const found = findStyles()
@@ -27,6 +28,15 @@ function check(kind, advice) {
 
 test('colors come from the --bt-* variables', () => {
   check('colors', 'Use a --bt-* variable. A new color becomes a variable first, in themes.js or in the base sheet of styles.js.')
+})
+
+test('phone pairing QR retains white paper in built-in light and dark themes', () => {
+  const styles = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const themes = readFileSync(new URL('../src/client/themes.js', import.meta.url), 'utf8')
+  assert.match(styles, /body\{--bt-qr-paper:#fff;/)
+  assert.match(styles, /\.bt-mobile-qr\{background:var\(--bt-qr-paper\)/)
+  assert.equal((styles.match(/--bt-qr-paper:/g) ?? []).length, 1)
+  assert.doesNotMatch(themes, /--bt-qr-paper/)
 })
 
 test('corner radii stay on the steps', () => {
