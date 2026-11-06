@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, normalize, splitRef, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
+import { classicTitle, syncClassicTitles } from './classic-titles.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
@@ -160,7 +161,7 @@ export function install(rt) {
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
-    const id = await createSession(cleanName, { dir })
+    const id = await createSession(classicTitle({ name: cleanName }), { dir })
     try {
       state.bots[id] = {
         id,
@@ -353,8 +354,9 @@ export function install(rt) {
       if (problem !== undefined) throw new Error(problem)
       bot.name = next
       const agent = await rt.resolveAgent(rt.chatOf(id))
-      await ctx.sessionTitle.rename(agent.session, next)
+      await ctx.sessionTitle.rename(agent.session, classicTitle(bot))
       await followMemberNames(Object.values(state.rooms).filter(room => room.members.includes(id)))
+      await syncClassicTitles(rt)
     }
     const roleBefore = bot.role
     const instructionsBefore = bot.instructions
@@ -772,6 +774,7 @@ export function install(rt) {
 
   async function bootstrap() {
     await rt.load()
+    await syncClassicTitles(rt)
     void rt.syncModels()
     if (state.mainBotIds.some(id => rt.botOf(id))) return
     // Only the team's first Main Bot is stored as the DeepSeek whale; other Bots get a
@@ -786,4 +789,14 @@ export function install(rt) {
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
   })
+
+  ctx.effect(() => {
+    let disposed = false
+    // Defer until all runtime modules are installed; Classic mode may never open
+    // the Bot panel and therefore never call bootstrap on its own.
+    void Promise.resolve().then(() => rt.load())
+      .then(() => { if (!disposed) return syncClassicTitles(rt) })
+      .catch(error => rt.warn('ds-bot: Classic title startup sync failed: %s', error))
+    return () => { disposed = true }
+  }, 'ds-bot: Classic chat titles')
 }
