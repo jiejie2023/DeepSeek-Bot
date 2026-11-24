@@ -19,6 +19,7 @@ import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 import { useEscape } from './overlay-hooks.js'
+import { PluginIconGlyph, readPanelsCollapsed, writePanelsCollapsed } from './panel-plugins.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -45,6 +46,9 @@ const useFalse = () => false
 const useEmptyArrayJson = () => '[]'
 const useNullJson = () => 'null'
 const useEmptySectionWork = () => '0|0'
+const EMPTY_PANELS = []
+const useEmptyPanels = () => EMPTY_PANELS
+const useNullPanel = () => null
 
 // Whether an approval waits for the user: for a Bot, in its own chat; for a group,
 // from any of its members in that group (both DSH tool approvals and computer-use asks).
@@ -90,12 +94,13 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, panelActive = false, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
   const running = useSessionStatus(map => map.get(part)?.running === true)
-  const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const retained = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const active = retained && !panelActive
   const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
@@ -175,13 +180,14 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }
 
-function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, onDragStart }) {
+function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, panelActive = false, onDragStart }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
   const fallback = useSessions(list => previewOf(list, sessionId))
   const preview = room.preview?.replace(/\s+/g, ' ').trim() || fallback
-  const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const retained = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const active = retained && !panelActive
   const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const approval = useApproval(useWork, useComputer, entry => entry.roomId === id && entry.answerable !== false, ask => ask.roomId === id)
@@ -264,7 +270,7 @@ function AgentSessionRow({ session, agent, actions, renaming, index }) {
 
 // The DSH Agent row: a plain dsh Session list lives in the Bot workspace, so it
 // sits among the Bots with the harness's own whale mark.
-function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, marked, onDragStart }) {
+function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, marked, panelActive = false, onDragStart }) {
   const info = useSessions(list => JSON.stringify(agent.sessions.map((id) => {
     const row = list.byId[id]
     return {
@@ -288,7 +294,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
     }))
   }, [info, statusInfo])
   const renaming = useUi(value => value.renameAgent)
-  const active = sessions.some(session => session.active)
+  const active = !panelActive && sessions.some(session => session.active)
   const running = sessions.some(session => session.running)
   const unread = sessions.some(session => session.unread) || (marked && !active)
   useMarkedUnread(agent.id, active, marked, actions)
@@ -565,6 +571,63 @@ function BootFailed({ actions }) {
       : null)
 }
 
+export function PanelPluginsDock({ wide, panels, activePanelId, onSelect }) {
+  const [collapsed, setCollapsed] = useState(readPanelsCollapsed)
+  if (!Array.isArray(panels) || panels.length === 0) return null
+  const toggle = () => {
+    setCollapsed((value) => {
+      const next = !value
+      writePanelsCollapsed(next)
+      return next
+    })
+  }
+  if (!wide) {
+    return h('nav', { className: 'bt-plugins-rail', 'aria-label': t('Plugins') },
+      h('span', { className: 'bt-rail-sep', 'aria-hidden': true }),
+      h('div', { className: 'bt-plugins-rail-list' },
+        panels.map((panel) => {
+          const active = activePanelId === panel.id
+          return h('button', {
+            key: panel.id, type: 'button', className: 'bt-plugin-rail-btn',
+            'data-panel-id': panel.id, 'aria-label': panel.label, title: panel.label,
+            'aria-current': active ? 'page' : undefined,
+            onClick: () => onSelect(panel.id),
+          }, h('span', { className: 'bt-plugin-ico', 'aria-hidden': true }, h(PluginIconGlyph, { Icon: panel.Icon, size: 18, active })))
+        })))
+  }
+  const hasActive = panels.some(panel => panel.id === activePanelId)
+  return h('nav', { className: 'bt-plugins', 'data-collapsed': collapsed ? 'true' : 'false', 'aria-label': t('Plugins') },
+    h('button', {
+      type: 'button', className: 'bt-plugins-head',
+      'aria-expanded': !collapsed,
+      'aria-label': t(collapsed ? 'Show plugins' : 'Hide plugins'),
+      onClick: toggle,
+    },
+    h('span', { className: 'bt-plugins-chev', 'aria-hidden': true }, h(ChevronRightIcon)),
+    h('span', { className: 'bt-plugins-title' }, t('Plugins')),
+    collapsed ? h('span', { className: 'bt-sec-count' }, String(panels.length)) : null,
+    collapsed && hasActive ? h('span', { className: 'bt-plugins-dot', 'aria-hidden': true }) : null),
+    h('div', { className: 'bt-plugins-body' },
+      h('div', { className: 'bt-plugins-list' },
+        panels.map((panel) => {
+          const active = activePanelId === panel.id
+          return h('button', {
+            key: panel.id, type: 'button', className: 'bt-plugin-row',
+            'data-panel-id': panel.id, 'aria-label': panel.label,
+            'aria-current': active ? 'page' : undefined,
+            onMouseEnter: (event) => {
+              const row = event.currentTarget
+              const name = row.querySelector('.bt-plugin-name')
+              if (name && name.scrollWidth > name.clientWidth) row.title = name.textContent
+              else row.removeAttribute('title')
+            },
+            onClick: () => onSelect(panel.id),
+          },
+          h('span', { className: 'bt-plugin-ico', 'aria-hidden': true }, h(PluginIconGlyph, { Icon: panel.Icon, size: 16, active })),
+          h('span', { className: 'bt-plugin-name' }, panel.label))
+        }))))
+}
+
 export function TeamSidebar(props) {
   const { wide, useRoster, useUi, useSessions, actions } = props
   const listRef = useRef(null)
@@ -576,6 +639,10 @@ export function TeamSidebar(props) {
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
   const renameSection = useUi(value => value.renameSection)
+  const useReadPanelPlugins = props.usePanelPlugins ?? useEmptyPanels
+  const useReadActivePanel = props.useActivePanel ?? useNullPanel
+  const panelPlugins = useReadPanelPlugins(rows => rows)
+  const activePanelId = useReadActivePanel(id => id)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
   const pref = props.useSidebarPref ? props.useSidebarPref(value => value) : 'open'
@@ -834,7 +901,7 @@ export function TeamSidebar(props) {
     openAgentSession: id => navigate(actions.openAgentSession, id),
     newAgentSession: id => navigate(actions.newAgentSession, id),
   }
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent, panelActive: activePanelId !== null }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
@@ -913,6 +980,12 @@ export function TeamSidebar(props) {
         onDragOverSec,
         onDropSec,
       }))),
+    h(PanelPluginsDock, {
+      wide: wideContent,
+      panels: panelPlugins,
+      activePanelId,
+      onSelect: id => navigate(actions.selectPanel, id),
+    }),
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
@@ -1473,5 +1546,36 @@ export const SIDEBAR_CSS = `
 .bt-menu-color-dot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-sec-add-menu{max-width:260px}
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
-@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
+
+/* Third-party DSH sidebar panel plugins pinned cleanly above the footer. */
+.bt-plugins{display:flex;flex-direction:column;flex:none;border-top:1px solid var(--bt-line);padding-top:6px;margin-top:2px}
+.bt-plugins-head{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-3);font-family:var(--bt-font);font-size:12px;line-height:16px;font-weight:600;cursor:pointer;width:100%;text-align:left;transition:background-color .12s ease,color .12s ease}
+.bt-plugins-head:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-plugins-head:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-plugins-chev{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:none;transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-plugins[data-collapsed=false] .bt-plugins-chev{transform:rotate(90deg)}
+.bt-plugins-chev svg{width:12px;height:12px}
+.bt-plugins-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-plugins-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-accent);margin-left:auto;flex:none}
+.bt-plugins-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-plugins[data-collapsed=true] .bt-plugins-body{grid-template-rows:0fr}
+.bt-plugins-list{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:2px;max-height:152px}
+.bt-plugins[data-collapsed=false] .bt-plugins-list{overflow-y:auto;padding-top:2px}
+.bt-plugin-row{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink-2);font-family:var(--bt-font);font-size:13px;line-height:18px;font-weight:400;text-align:left;cursor:pointer;width:100%;box-sizing:border-box;flex:none;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-plugin-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-plugin-row:active{transform:scale(.98)}
+.bt-plugin-row[aria-current=page]{background:var(--bt-active);color:var(--bt-ink);font-weight:500}
+.bt-plugin-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-plugin-ico{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;color:currentColor}
+.bt-plugin-ico svg{width:16px;height:16px;display:block}
+.bt-plugin-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-plugins-rail{display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:100%;padding-top:4px}
+.bt-plugins-rail-list{display:flex;flex-direction:column;align-items:center;gap:6px;max-height:144px;overflow-y:auto;width:100%}
+.bt-plugin-rail-btn{flex:none;width:36px;height:36px;border:0;padding:0;border-radius:50%;corner-shape:round;background:transparent;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-plugin-rail-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-plugin-rail-btn:active{transform:scale(.92)}
+.bt-plugin-rail-btn[aria-current=page]{background:var(--bt-active);color:var(--bt-ink);box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-plugin-rail-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-plugin-rail-btn .bt-plugin-ico svg{width:18px;height:18px}
+@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder,.bt-plugins-body,.bt-plugins-chev,.bt-plugin-row,.bt-plugin-rail-btn{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
 `

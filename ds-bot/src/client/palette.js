@@ -3,6 +3,7 @@ import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, stripHeader } from './text.js'
 import { PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
+import { PluginIconGlyph } from './panel-plugins.js'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { QUICK_EDGES, useFlip, useGlide } from './motion.js'
@@ -11,11 +12,16 @@ import { t } from './i18n.js'
 // Search is a command palette: a 560px dialog, a search header, and 49px
 // rows (24px avatar, title, subtitle). Bots and groups match on name and role; past
 // messages match on their text.
+const EMPTY_PANELS = []
+const useEmptyPanels = () => EMPTY_PANELS
+
 const PALETTE_EXIT_MS = 160
-export function CommandPalette({ start, token, roster, actions, useSessions }) {
+export function CommandPalette({ start, token, roster, actions, useSessions, usePanelPlugins }) {
   const [query, setQuery] = useState(start ?? '')
   const [cursor, setCursor] = useState(0)
   const [leaving, setLeaving] = useState(false)
+  const useReadPanels = usePanelPlugins ?? useEmptyPanels
+  const panelPlugins = useReadPanels(rows => rows)
   const wanted = query.trim().toLowerCase()
   const close = () => {
     if (leaving) return
@@ -67,6 +73,16 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     run: () => actions.openAgent(agent.id),
   }))
   if (agents.length) sections.push(['DSH Agent', agents])
+  const plugins = panelPlugins
+    .filter(panel => matchesName(panel.label, panel.id))
+    .map(panel => ({
+      key: `panel:${panel.id}`,
+      icon: h(PluginIconGlyph, { Icon: panel.Icon, size: 16 }),
+      title: panel.label,
+      subtitle: t('Plugin'),
+      run: () => actions.selectPanel(panel.id),
+    }))
+  if (plugins.length) sections.push([t('Plugins'), plugins])
   const messages = JSON.parse(found).map(([id, turn, snippet]) => {
     const bot = roster.byId[id]
     const room = roster.roomsById[id]

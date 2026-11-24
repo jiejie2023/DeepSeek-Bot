@@ -23,7 +23,7 @@ const useDefaultFrame = () => ({ viewport: typeof window === 'undefined' ? 0 : w
 const useDefaultSidebarPref = () => 'open'
 const useDefaultFalse = () => false
 
-export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
+export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, usePanelPlugins, actions }) {
   const roster = useRoster(value => value)
   const ui = useUi(value => value)
   useRegistry(value => value)
@@ -93,7 +93,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.palette ? h(OverlayBoundary, {
       name: 'palette', reset: paletteToken,
       onDismiss: () => actions.closePalette?.(paletteToken), actions,
-    }, createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body)) : null,
+    }, createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions, usePanelPlugins }), document.body)) : null,
     ui.groupSearch && roster.roomsById[ui.groupSearch.roomId]
       ? h(OverlayBoundary, {
           name: 'group-search', reset: groupSearchToken,
