@@ -934,8 +934,9 @@ var JA = {
   "Session actions": "セッションの操作",
   "Plugins": "プラグイン",
   "Plugin": "プラグイン",
-  "Show plugins": "プラグインを表示",
-  "Hide plugins": "プラグインを隠す",
+  "Manage plugins": "プラグインを管理",
+  "Pin to footer": "下部に固定",
+  "Unpin from footer": "固定を解除",
   "Plain dsh session": "標準の dsh セッション",
   "just now": "たった今",
   "{n} min": "{n} 分",
@@ -3647,8 +3648,9 @@ var KO = {
   "Session actions": "세션 작업",
   "Plugins": "플러그인",
   "Plugin": "플러그인",
-  "Show plugins": "플러그인 표시",
-  "Hide plugins": "플러그인 숨기기",
+  "Manage plugins": "플러그인 관리",
+  "Pin to footer": "하단에 고정",
+  "Unpin from footer": "고정 해제",
   "Plain dsh session": "기본 dsh 세션",
   "just now": "방금",
   "{n} min": "{n}분",
@@ -6381,8 +6383,9 @@ var ES = {
   "Session actions": "Acciones de sesión",
   "Plugins": "Complementos",
   "Plugin": "Complemento",
-  "Show plugins": "Mostrar complementos",
-  "Hide plugins": "Ocultar complementos",
+  "Manage plugins": "Administrar complementos",
+  "Pin to footer": "Fijar en la barra inferior",
+  "Unpin from footer": "Desfijar de la barra inferior",
   "Plain dsh session": "Sesión nativa de dsh",
   "just now": "ahora mismo",
   "{n} min": "{n} min",
@@ -9091,8 +9094,9 @@ var FR = {
   "Session actions": "Actions de session",
   "Plugins": "Plugins",
   "Plugin": "Plugin",
-  "Show plugins": "Afficher les plugins",
-  "Hide plugins": "Masquer les plugins",
+  "Manage plugins": "Gérer les plugins",
+  "Pin to footer": "Épingler en bas",
+  "Unpin from footer": "Désépingler du bas",
   "Plain dsh session": "Session dsh standard",
   "just now": "à l’instant",
   "{n} min": "{n} min",
@@ -11804,8 +11808,9 @@ var DE = {
   "Session actions": "Sitzungsaktionen",
   "Plugins": "Plugins",
   "Plugin": "Plugin",
-  "Show plugins": "Plugins einblenden",
-  "Hide plugins": "Plugins ausblenden",
+  "Manage plugins": "Plugins verwalten",
+  "Pin to footer": "An Fußleiste anheften",
+  "Unpin from footer": "Von Fußleiste lösen",
   "Plain dsh session": "Native dsh-Sitzung",
   "just now": "gerade eben",
   "{n} min": "{n} Min.",
@@ -14611,8 +14616,9 @@ var ZH = {
   "Session actions": "会话操作",
   Plugins: "插件",
   Plugin: "插件",
-  "Show plugins": "展开插件",
-  "Hide plugins": "收起插件",
+  "Manage plugins": "管理插件",
+  "Pin to footer": "固定到底栏",
+  "Unpin from footer": "取消固定",
   "Plain dsh session": "原生 dsh 会话",
   "just now": "刚刚",
   "{n} min": "{n} 分钟",
@@ -17725,7 +17731,7 @@ var STORAGE = {
   browserWidth: "ds-bot:browser-width",
   browserImportSource: "ds-bot:browser-import-source",
   sidebar: "ds-bot:sidebar",
-  panelsCollapsed: "ds-bot:panels-collapsed",
+  pinnedPanels: "ds-bot:pinned-panels",
   browsers: "ds-bot.browser.v2",
   drafts: "ds-bot:drafts"
 };
@@ -33194,19 +33200,32 @@ function activePanelSource(layout) {
     }
   };
 }
-function readPanelsCollapsed(storage = globalThis.localStorage) {
+function readPinnedPanels(storage = globalThis.localStorage) {
   try {
-    return storage?.getItem(STORAGE.panelsCollapsed) === "1";
+    const parsed = JSON.parse(storage?.getItem(STORAGE.pinnedPanels) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    for (const item of parsed) {
+      if (typeof item !== "string" || item === "" || HIDDEN_PANEL_IDS.has(item) || seen.has(item)) continue;
+      seen.add(item);
+      out.push(item);
+    }
+    return out;
   } catch {
-    return false;
+    return [];
   }
 }
-function writePanelsCollapsed(collapsed, storage = globalThis.localStorage) {
+function writePinnedPanels(ids, storage = globalThis.localStorage) {
   try {
-    if (collapsed) storage?.setItem(STORAGE.panelsCollapsed, "1");
-    else storage?.removeItem(STORAGE.panelsCollapsed);
+    if (!Array.isArray(ids) || ids.length === 0) storage?.removeItem(STORAGE.pinnedPanels);
+    else storage?.setItem(STORAGE.pinnedPanels, JSON.stringify(ids));
   } catch {
   }
+}
+function togglePinnedPanel(ids, id) {
+  if (typeof id !== "string" || id === "" || HIDDEN_PANEL_IDS.has(id)) return ids;
+  return ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
 }
 var BaseComponent = typeof import_react37.Component === "function" ? import_react37.Component : null;
 var IconGuard = BaseComponent ? class IconGuard2 extends BaseComponent {
@@ -33848,90 +33867,16 @@ function BootFailed({ actions }) {
     typeof actions.setSurface === "function" ? (0, import_react38.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("agent") }, t("Switch to classic Agent mode")) : null
   );
 }
-function PanelPluginsDock({ wide, panels, activePanelId, onSelect }) {
-  const [collapsed, setCollapsed] = (0, import_react38.useState)(readPanelsCollapsed);
-  if (!Array.isArray(panels) || panels.length === 0) return null;
-  const toggle = () => {
-    setCollapsed((value) => {
-      const next = !value;
-      writePanelsCollapsed(next);
-      return next;
-    });
-  };
-  if (!wide) {
-    return (0, import_react38.createElement)(
-      "nav",
-      { className: "bt-plugins-rail", "aria-label": t("Plugins") },
-      (0, import_react38.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true }),
-      (0, import_react38.createElement)(
-        "div",
-        { className: "bt-plugins-rail-list" },
-        panels.map((panel) => {
-          const active = activePanelId === panel.id;
-          return (0, import_react38.createElement)("button", {
-            key: panel.id,
-            type: "button",
-            className: "bt-plugin-rail-btn",
-            "data-panel-id": panel.id,
-            "aria-label": panel.label,
-            title: panel.label,
-            "aria-current": active ? "page" : void 0,
-            onClick: () => onSelect(panel.id)
-          }, (0, import_react38.createElement)("span", { className: "bt-plugin-ico", "aria-hidden": true }, (0, import_react38.createElement)(PluginIconGlyph, { Icon: panel.Icon, size: 18, active })));
-        })
-      )
-    );
-  }
-  const hasActive = panels.some((panel) => panel.id === activePanelId);
-  return (0, import_react38.createElement)(
-    "nav",
-    { className: "bt-plugins", "data-collapsed": collapsed ? "true" : "false", "aria-label": t("Plugins") },
-    (0, import_react38.createElement)(
-      "button",
-      {
-        type: "button",
-        className: "bt-plugins-head",
-        "aria-expanded": !collapsed,
-        "aria-label": t(collapsed ? "Show plugins" : "Hide plugins"),
-        onClick: toggle
-      },
-      (0, import_react38.createElement)("span", { className: "bt-plugins-chev", "aria-hidden": true }, (0, import_react38.createElement)(ChevronRightIcon)),
-      (0, import_react38.createElement)("span", { className: "bt-plugins-title" }, t("Plugins")),
-      collapsed ? (0, import_react38.createElement)("span", { className: "bt-sec-count" }, String(panels.length)) : null,
-      collapsed && hasActive ? (0, import_react38.createElement)("span", { className: "bt-plugins-dot", "aria-hidden": true }) : null
-    ),
-    (0, import_react38.createElement)(
-      "div",
-      { className: "bt-plugins-body" },
-      (0, import_react38.createElement)(
-        "div",
-        { className: "bt-plugins-list" },
-        panels.map((panel) => {
-          const active = activePanelId === panel.id;
-          return (0, import_react38.createElement)(
-            "button",
-            {
-              key: panel.id,
-              type: "button",
-              className: "bt-plugin-row",
-              "data-panel-id": panel.id,
-              "aria-label": panel.label,
-              "aria-current": active ? "page" : void 0,
-              onMouseEnter: (event) => {
-                const row = event.currentTarget;
-                const name = row.querySelector(".bt-plugin-name");
-                if (name && name.scrollWidth > name.clientWidth) row.title = name.textContent;
-                else row.removeAttribute("title");
-              },
-              onClick: () => onSelect(panel.id)
-            },
-            (0, import_react38.createElement)("span", { className: "bt-plugin-ico", "aria-hidden": true }, (0, import_react38.createElement)(PluginIconGlyph, { Icon: panel.Icon, size: 16, active })),
-            (0, import_react38.createElement)("span", { className: "bt-plugin-name" }, panel.label)
-          );
-        })
-      )
-    )
-  );
+function PinnedPluginButton({ panel, active, onSelect }) {
+  return (0, import_react38.createElement)("button", {
+    type: "button",
+    className: "bt-account bt-plugin-dock-btn",
+    "data-panel-id": panel.id,
+    "aria-label": panel.label,
+    title: panel.label,
+    "aria-current": active ? "page" : void 0,
+    onClick: () => onSelect(panel.id)
+  }, (0, import_react38.createElement)("span", { className: "bt-you", "aria-hidden": true }, (0, import_react38.createElement)(PluginIconGlyph, { Icon: panel.Icon, size: 16, active })));
 }
 function TeamSidebar(props) {
   const { wide, useRoster, useUi, useSessions, actions } = props;
@@ -33948,6 +33893,19 @@ function TeamSidebar(props) {
   const useReadActivePanel = props.useActivePanel ?? useNullPanel;
   const panelPlugins = useReadPanelPlugins((rows2) => rows2);
   const activePanelId = useReadActivePanel((id) => id);
+  const initialPinnedIds = (0, import_react38.useMemo)(() => readPinnedPanels(), []);
+  const [pinnedIds, setPinnedIds] = (0, import_react38.useState)(initialPinnedIds);
+  const onTogglePin = (id) => {
+    setPinnedIds((current2) => {
+      const next = togglePinnedPanel(current2, id);
+      writePinnedPanels(next);
+      return next;
+    });
+  };
+  const pinnedPanels = (0, import_react38.useMemo)(() => {
+    const byId = new Map(panelPlugins.map((panel) => [panel.id, panel]));
+    return pinnedIds.map((id) => byId.get(id)).filter(Boolean);
+  }, [panelPlugins, pinnedIds]);
   props.useRegistry((value) => value);
   const frameSnap = props.useFrame ? props.useFrame((value) => value) : { viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
   const pref = props.useSidebarPref ? props.useSidebarPref((value) => value) : "open";
@@ -34231,12 +34189,16 @@ function TeamSidebar(props) {
     main ? (0, import_react38.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react38.createElement)(BootFailed, { actions }) : (0, import_react38.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
     (0, import_react38.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react38.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react38.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react38.createElement)(PluginsButton, { actions })) : (0, import_react38.createElement)(
+  const openPanel = (id) => navigate(actions.selectPanel, id);
+  const pluginsTrigger = (0, import_react38.createElement)(PluginsButton, { actions, panels: panelPlugins, activePanelId, pinnedIds, onTogglePin, onSelect: openPanel });
+  const pinnedTriggers = pinnedPanels.map((panel) => (0, import_react38.createElement)(PinnedPluginButton, { key: panel.id, panel, active: activePanelId === panel.id, onSelect: openPanel }));
+  const foot = wideContent ? (0, import_react38.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react38.createElement)(AccountLauncher, { seat: false, actions }), pluginsTrigger, pinnedTriggers) : (0, import_react38.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react38.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react38.createElement)(PlusIcon)),
+    pinnedTriggers,
     (0, import_react38.createElement)(AccountLauncher, { seat: false, actions }),
-    (0, import_react38.createElement)(PluginsButton, { actions })
+    pluginsTrigger
   );
   const content = (0, import_react38.createElement)(
     "div",
@@ -34279,12 +34241,6 @@ function TeamSidebar(props) {
         onDropSec
       }))
     ),
-    (0, import_react38.createElement)(PanelPluginsDock, {
-      wide: wideContent,
-      panels: panelPlugins,
-      activePanelId,
-      onSelect: (id) => navigate(actions.selectPanel, id)
-    }),
     foot
   );
   return (0, import_react38.createElement)(
@@ -34684,12 +34640,138 @@ function useLandOnMainBot(roster, useSessions, actions) {
     return () => clearTimeout(timer);
   }, [mainView, roster]);
 }
-function PluginsButton({ actions }) {
-  if (!actions.hasPlugins?.()) return null;
+function PluginsButton({ actions, panels = EMPTY_PANELS, activePanelId = null, pinnedIds = EMPTY_PANELS, onTogglePin, onSelect }) {
+  const [open, setOpen] = (0, import_react38.useState)(false);
+  const [box, setBox] = (0, import_react38.useState)(null);
+  const button = (0, import_react38.useRef)(null);
+  const menuRef = (0, import_react38.useRef)(null);
+  const hasManager = actions.hasPlugins?.() === true;
+  const hasPanels = Array.isArray(panels) && panels.length > 0;
+  (0, import_react38.useEffect)(() => {
+    if (!open) return void 0;
+    const onDown = (event) => {
+      if (event.target instanceof Element && (event.target.closest(".bt-plugins-menu") || button.current?.contains(event.target))) return;
+      setOpen(false);
+    };
+    const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, button.current)) return;
+      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
+        event.stopPropagation();
+        setOpen(false);
+        button.current?.focus();
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+  const tick = useViewport();
+  const anchor = () => {
+    const rect = button.current?.getBoundingClientRect();
+    if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 });
+  };
+  (0, import_react38.useLayoutEffect)(() => {
+    if (open) anchor();
+  }, [open, tick]);
+  (0, import_react38.useEffect)(() => {
+    if (!hasPanels && open) setOpen(false);
+  }, [hasPanels, open]);
+  if (!hasManager && !hasPanels) return null;
+  if (!hasPanels) {
+    return (0, import_react38.createElement)(
+      "button",
+      { type: "button", className: "bt-account", "aria-label": t("Plugins"), title: t("Plugins"), onClick: () => actions.openPlugins() },
+      (0, import_react38.createElement)("span", { className: "bt-you", "aria-hidden": true }, (0, import_react38.createElement)(PlugIcon))
+    );
+  }
+  const toggle = () => {
+    if (!open) anchor();
+    setOpen((value) => !value);
+  };
+  const openUnpinned = activePanelId !== null && panels.some((panel) => panel.id === activePanelId) && !pinnedIds.includes(activePanelId);
+  const pick2 = (id) => {
+    setOpen(false);
+    if (typeof onSelect === "function") onSelect(id);
+    else actions.selectPanel?.(id);
+  };
   return (0, import_react38.createElement)(
-    "button",
-    { type: "button", className: "bt-account", "aria-label": t("Plugins"), title: t("Plugins"), onClick: () => actions.openPlugins() },
-    (0, import_react38.createElement)("span", { className: "bt-you", "aria-hidden": true }, (0, import_react38.createElement)(PlugIcon))
+    import_react38.Fragment,
+    null,
+    (0, import_react38.createElement)(
+      "button",
+      {
+        ref: button,
+        type: "button",
+        className: "bt-account bt-plugins-trigger",
+        "aria-label": t("Plugins"),
+        title: t("Plugins"),
+        "aria-haspopup": "menu",
+        "aria-expanded": open,
+        onClick: toggle
+      },
+      (0, import_react38.createElement)("span", { className: "bt-you", "aria-hidden": true }, (0, import_react38.createElement)(PlugIcon)),
+      openUnpinned ? (0, import_react38.createElement)("span", { className: "bt-plugin-live-dot", "aria-hidden": true }) : null
+    ),
+    open && box ? (0, import_react_dom6.createPortal)((0, import_react38.createElement)(
+      "div",
+      { ref: menuRef, className: "bt-menu bt-menu-up bt-plugins-menu", role: "menu", "aria-label": t("Plugins"), style: box },
+      (0, import_react38.createElement)(
+        "div",
+        { className: "bt-plugins-menu-list" },
+        panels.map((panel) => {
+          const active = activePanelId === panel.id;
+          const pinned = pinnedIds.includes(panel.id);
+          const pinLabel = t(pinned ? "Unpin from footer" : "Pin to footer");
+          return (0, import_react38.createElement)(
+            "div",
+            { key: panel.id, className: "bt-plugin-mrow", "data-pinned": pinned ? "true" : void 0 },
+            (0, import_react38.createElement)(
+              "button",
+              {
+                type: "button",
+                role: "menuitem",
+                className: "bt-plugin-mitem",
+                "data-panel-id": panel.id,
+                "aria-current": active ? "page" : void 0,
+                onClick: () => pick2(panel.id)
+              },
+              (0, import_react38.createElement)("span", { className: "bt-plugin-mico", "aria-hidden": true }, (0, import_react38.createElement)(PluginIconGlyph, { Icon: panel.Icon, size: 15, active })),
+              (0, import_react38.createElement)("span", { className: "bt-menu-label" }, panel.label),
+              active ? (0, import_react38.createElement)("span", { className: "bt-menu-check", "aria-hidden": true }, (0, import_react38.createElement)(CheckIcon)) : null
+            ),
+            onTogglePin ? (0, import_react38.createElement)("button", {
+              type: "button",
+              className: "bt-plugin-mpin",
+              "data-pin-panel": panel.id,
+              "aria-label": pinLabel,
+              title: pinLabel,
+              "aria-pressed": pinned,
+              onClick: (event) => {
+                event.stopPropagation();
+                onTogglePin(panel.id);
+              }
+            }, (0, import_react38.createElement)(pinned ? PinMarkIcon : PinIcon)) : null
+          );
+        })
+      ),
+      hasManager ? (0, import_react38.createElement)(
+        import_react38.Fragment,
+        null,
+        (0, import_react38.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+        (0, import_react38.createElement)("button", {
+          type: "button",
+          role: "menuitem",
+          className: "bt-plugin-manage",
+          onClick: () => {
+            setOpen(false);
+            actions.openPlugins();
+          }
+        }, (0, import_react38.createElement)(PlugIcon), (0, import_react38.createElement)("span", { className: "bt-menu-label" }, t("Manage plugins")))
+      ) : null
+    ), document.body) : null
   );
 }
 function FooterAccount(props) {
@@ -34863,37 +34945,29 @@ var SIDEBAR_CSS = `
 .bt-sec-add-menu{max-width:260px}
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
 
-/* Third-party DSH sidebar panel plugins pinned cleanly above the footer. */
-.bt-plugins{display:flex;flex-direction:column;flex:none;border-top:1px solid var(--bt-line);padding-top:6px;margin-top:2px}
-.bt-plugins-head{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-3);font-family:var(--bt-font);font-size:12px;line-height:16px;font-weight:600;cursor:pointer;width:100%;text-align:left;transition:background-color .12s ease,color .12s ease}
-.bt-plugins-head:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
-.bt-plugins-head:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-plugins-chev{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:none;transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-plugins[data-collapsed=false] .bt-plugins-chev{transform:rotate(90deg)}
-.bt-plugins-chev svg{width:12px;height:12px}
-.bt-plugins-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-plugins-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-accent);margin-left:auto;flex:none}
-.bt-plugins-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-plugins[data-collapsed=true] .bt-plugins-body{grid-template-rows:0fr}
-.bt-plugins-list{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:2px;max-height:152px}
-.bt-plugins[data-collapsed=false] .bt-plugins-list{overflow-y:auto;padding-top:2px}
-.bt-plugin-row{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink-2);font-family:var(--bt-font);font-size:13px;line-height:18px;font-weight:400;text-align:left;cursor:pointer;width:100%;box-sizing:border-box;flex:none;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
-.bt-plugin-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-plugin-row:active{transform:scale(.98)}
-.bt-plugin-row[aria-current=page]{background:var(--bt-active);color:var(--bt-ink);font-weight:500}
-.bt-plugin-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-plugin-ico{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;color:currentColor}
-.bt-plugin-ico svg{width:16px;height:16px;display:block}
-.bt-plugin-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-plugins-rail{display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:100%;padding-top:4px}
-.bt-plugins-rail-list{display:flex;flex-direction:column;align-items:center;gap:6px;max-height:144px;overflow-y:auto;width:100%}
-.bt-plugin-rail-btn{flex:none;width:36px;height:36px;border:0;padding:0;border-radius:50%;corner-shape:round;background:transparent;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
-.bt-plugin-rail-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-plugin-rail-btn:active{transform:scale(.92)}
-.bt-plugin-rail-btn[aria-current=page]{background:var(--bt-active);color:var(--bt-ink);box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
-.bt-plugin-rail-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-plugin-rail-btn .bt-plugin-ico svg{width:18px;height:18px}
-@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder,.bt-plugins-body,.bt-plugins-chev,.bt-plugin-row,.bt-plugin-rail-btn{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
+/* Upgraded Plugins launcher menu and footer-pinned plugin circle buttons. */
+.bt-leftcol-foot:not(.bt-leftcol-foot-rail){flex-wrap:wrap}
+.bt-plugins-trigger{position:relative}
+.bt-plugin-live-dot{position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar);pointer-events:none}
+.bt-plugin-dock-btn .bt-you svg{width:16px;height:16px;display:block}
+.bt-plugin-dock-btn[aria-current=page] .bt-you{background:color-mix(in srgb,var(--bt-accent) 14%,var(--bt-sidebar));color:var(--bt-accent);box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-plugins-menu{width:236px}
+.bt-plugins-menu-list{display:flex;flex-direction:column;gap:2px;max-height:256px;overflow-y:auto}
+.bt-plugin-mrow{display:flex;align-items:center;gap:2px}
+.bt-menu .bt-plugin-mitem{flex:1;min-width:0;gap:8px;padding:6px 8px}
+.bt-menu .bt-plugin-mitem[aria-current=page]{background:var(--bt-hover);font-weight:500}
+.bt-plugin-mico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;color:var(--bt-ink-2)}
+.bt-menu .bt-plugin-mitem[aria-current=page] .bt-plugin-mico{color:var(--bt-ink)}
+.bt-plugin-mico svg{width:15px;height:15px;display:block;margin:0}
+.bt-menu .bt-plugin-mpin{width:26px;min-height:26px;height:26px;padding:0;flex:none;justify-content:center;border-radius:6px;color:var(--bt-ink-3);opacity:0;transition:opacity .12s ease,background-color .12s ease,color .12s ease}
+.bt-plugin-mrow:is(:hover,:focus-within) .bt-plugin-mpin,.bt-plugin-mrow[data-pinned=true] .bt-plugin-mpin{opacity:1}
+.bt-menu .bt-plugin-mpin:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-menu .bt-plugin-mpin[aria-pressed=true]{color:var(--bt-accent)}
+.bt-menu .bt-plugin-mpin svg{width:13px;height:13px;margin:0}
+.bt-menu .bt-plugin-manage{gap:8px;color:var(--bt-ink-2)}
+.bt-menu .bt-plugin-manage:hover{color:var(--bt-ink)}
+@media (hover:none){.bt-menu .bt-plugin-mpin{opacity:.75}}
+@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder,.bt-menu .bt-plugin-mpin{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
 `;
 
 // src/client/permission-picker.js

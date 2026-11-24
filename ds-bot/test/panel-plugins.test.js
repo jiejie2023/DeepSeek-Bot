@@ -9,8 +9,9 @@ import {
   activePanelSource,
   panelPluginsSource,
   panelRows,
-  readPanelsCollapsed,
-  writePanelsCollapsed,
+  readPinnedPanels,
+  togglePinnedPanel,
+  writePinnedPanels,
 } from '../src/client/panel-plugins.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -105,25 +106,33 @@ test('activePanelSource reads layout.panelInfo and degrades safely when absent',
   assert.equal(listeners.size, 0)
 })
 
-test('readPanelsCollapsed and writePanelsCollapsed persist to storage', () => {
+test('readPinnedPanels, writePinnedPanels, and togglePinnedPanel persist valid panel ids', () => {
   const map = new Map()
   const storage = {
     getItem: key => (map.has(key) ? map.get(key) : null),
     setItem: (key, value) => map.set(key, String(value)),
     removeItem: key => map.delete(key),
   }
-  assert.equal(readPanelsCollapsed(storage), false)
-  writePanelsCollapsed(true, storage)
-  assert.equal(readPanelsCollapsed(storage), true)
-  writePanelsCollapsed(false, storage)
-  assert.equal(readPanelsCollapsed(storage), false)
+  assert.deepEqual(readPinnedPanels(storage), [])
+  let pins = togglePinnedPanel([], 'life-wiki')
+  pins = togglePinnedPanel(pins, 'media-desk')
+  pins = togglePinnedPanel(pins, 'plugins')
+  writePinnedPanels(pins, storage)
+  assert.deepEqual(readPinnedPanels(storage), ['life-wiki', 'media-desk'])
+  pins = togglePinnedPanel(pins, 'life-wiki')
+  writePinnedPanels(pins, storage)
+  assert.deepEqual(readPinnedPanels(storage), ['media-desk'])
+  writePinnedPanels([], storage)
+  assert.deepEqual(readPinnedPanels(storage), [])
 })
 
 const { outputFiles } = await build({
-  stdin: { contents: "export { PanelPluginsDock, TeamSidebar } from './src/client/sidebar.js'", resolveDir: PLUGIN },
+  stdin: { contents: "export { PluginsButton, PinnedPluginButton } from './src/client/sidebar.js'", resolveDir: PLUGIN },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
+let stateSlots = []
+let stateCursor = 0
 const reactStub = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
   useContext: ctx => ctx.value,
@@ -133,7 +142,11 @@ const reactStub = {
   Fragment: Symbol('Fragment'),
   useEffect() {},
   useLayoutEffect() {},
-  useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
+  useState: (initial) => {
+    const index = stateCursor++
+    if (!(index in stateSlots)) stateSlots[index] = typeof initial === 'function' ? initial() : initial
+    return [stateSlots[index], (next) => { stateSlots[index] = typeof next === 'function' ? next(stateSlots[index]) : next }]
+  },
   useMemo: make => make(),
   useRef: current => ({ current }),
   useId: () => 'id',
@@ -143,9 +156,10 @@ runInNewContext(outputFiles[0].text, {
   module: vmMod,
   exports: vmMod.exports,
   window: { innerWidth: 1280 },
-  require: name => (name === 'react' ? reactStub : {}),
+  document: { body: {} },
+  require: name => (name === 'react' ? reactStub : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { PanelPluginsDock } = vmMod.exports
+const { PluginsButton, PinnedPluginButton } = vmMod.exports
 
 const walk = (node, match, out = []) => {
   if (Array.isArray(node)) { for (const child of node) walk(child, match, out); return out }
@@ -155,27 +169,48 @@ const walk = (node, match, out = []) => {
   return out
 }
 
-test('PanelPluginsDock renders null when empty, wide rows when open, and rail buttons when narrow', () => {
-  assert.equal(PanelPluginsDock({ wide: true, panels: [], activePanelId: null, onSelect: () => {} }), null)
-
-  const selected = []
+test('PluginsButton opens upward menu with panels, pin toggles and Manage plugins; PinnedPluginButton launches directly', () => {
   const panels = [
     { id: 'life-wiki', order: 25, label: 'Life Wiki', Icon: FakeIcon },
     { id: 'media-desk', order: 40, label: 'Media Desk', Icon: null },
   ]
-  const wideTree = PanelPluginsDock({ wide: true, panels, activePanelId: 'life-wiki', onSelect: id => selected.push(id) })
-  const rows = walk(wideTree, n => n.type === 'button' && n.props?.['data-panel-id'])
-  assert.deepEqual(rows.map(r => r.props['data-panel-id']), ['life-wiki', 'media-desk'])
-  assert.equal(rows[0].props['aria-current'], 'page')
-  assert.equal(rows[1].props['aria-current'], undefined)
-  rows[0].props.onClick()
-  assert.deepEqual(selected, ['life-wiki'])
+  const selected = []
+  const toggled = []
+  let managed = 0
+  const actions = { hasPlugins: () => true, openPlugins: () => { managed += 1 }, selectPanel: id => selected.push(id) }
 
-  const railTree = PanelPluginsDock({ wide: false, panels, activePanelId: 'media-desk', onSelect: id => selected.push(id) })
-  const railButtons = walk(railTree, n => n.type === 'button' && n.props?.className === 'bt-plugin-rail-btn')
-  assert.deepEqual(railButtons.map(b => b.props['data-panel-id']), ['life-wiki', 'media-desk'])
-  assert.equal(railButtons[0].props['aria-current'], undefined)
-  assert.equal(railButtons[1].props['aria-current'], 'page')
-  railButtons[1].props.onClick()
-  assert.deepEqual(selected, ['life-wiki', 'media-desk'])
+  // Open menu state: stateSlots[0] = open (true), stateSlots[1] = box
+  stateSlots = [true, { left: 48, bottom: 52 }]
+  stateCursor = 0
+  const tree = PluginsButton({
+    actions,
+    panels,
+    activePanelId: 'life-wiki',
+    pinnedIds: ['life-wiki'],
+    onTogglePin: id => toggled.push(id),
+    onSelect: id => selected.push(id),
+  })
+  const items = walk(tree, n => n.type === 'button' && n.props?.['data-panel-id'])
+  assert.deepEqual(items.map(i => i.props['data-panel-id']), ['life-wiki', 'media-desk'])
+  assert.equal(items[0].props['aria-current'], 'page')
+  assert.equal(items[1].props['aria-current'], undefined)
+  items[1].props.onClick()
+  assert.deepEqual(selected, ['media-desk'])
+
+  const pinButtons = walk(tree, n => n.type === 'button' && n.props?.['data-pin-panel'])
+  assert.equal(pinButtons[0].props['aria-pressed'], true)
+  assert.equal(pinButtons[1].props['aria-pressed'], false)
+  pinButtons[1].props.onClick({ stopPropagation() {} })
+  assert.deepEqual(toggled, ['media-desk'])
+
+  const manageBtn = walk(tree, n => n.type === 'button' && n.props?.className === 'bt-plugin-manage')[0]
+  assert.ok(manageBtn)
+  manageBtn.props.onClick()
+  assert.equal(managed, 1)
+
+  const pinnedBtn = PinnedPluginButton({ panel: panels[0], active: true, onSelect: id => selected.push(id) })
+  assert.equal(pinnedBtn.props['aria-current'], 'page')
+  assert.equal(pinnedBtn.props.title, 'Life Wiki')
+  pinnedBtn.props.onClick()
+  assert.deepEqual(selected, ['media-desk', 'life-wiki'])
 })

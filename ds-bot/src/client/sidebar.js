@@ -4,7 +4,7 @@ import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinIcon, PinMarkIcon, CheckIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
@@ -19,7 +19,7 @@ import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 import { useEscape } from './overlay-hooks.js'
-import { PluginIconGlyph, readPanelsCollapsed, writePanelsCollapsed } from './panel-plugins.js'
+import { PluginIconGlyph, readPinnedPanels, togglePinnedPanel, writePinnedPanels } from './panel-plugins.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -571,61 +571,16 @@ function BootFailed({ actions }) {
       : null)
 }
 
-export function PanelPluginsDock({ wide, panels, activePanelId, onSelect }) {
-  const [collapsed, setCollapsed] = useState(readPanelsCollapsed)
-  if (!Array.isArray(panels) || panels.length === 0) return null
-  const toggle = () => {
-    setCollapsed((value) => {
-      const next = !value
-      writePanelsCollapsed(next)
-      return next
-    })
-  }
-  if (!wide) {
-    return h('nav', { className: 'bt-plugins-rail', 'aria-label': t('Plugins') },
-      h('span', { className: 'bt-rail-sep', 'aria-hidden': true }),
-      h('div', { className: 'bt-plugins-rail-list' },
-        panels.map((panel) => {
-          const active = activePanelId === panel.id
-          return h('button', {
-            key: panel.id, type: 'button', className: 'bt-plugin-rail-btn',
-            'data-panel-id': panel.id, 'aria-label': panel.label, title: panel.label,
-            'aria-current': active ? 'page' : undefined,
-            onClick: () => onSelect(panel.id),
-          }, h('span', { className: 'bt-plugin-ico', 'aria-hidden': true }, h(PluginIconGlyph, { Icon: panel.Icon, size: 18, active })))
-        })))
-  }
-  const hasActive = panels.some(panel => panel.id === activePanelId)
-  return h('nav', { className: 'bt-plugins', 'data-collapsed': collapsed ? 'true' : 'false', 'aria-label': t('Plugins') },
-    h('button', {
-      type: 'button', className: 'bt-plugins-head',
-      'aria-expanded': !collapsed,
-      'aria-label': t(collapsed ? 'Show plugins' : 'Hide plugins'),
-      onClick: toggle,
-    },
-    h('span', { className: 'bt-plugins-chev', 'aria-hidden': true }, h(ChevronRightIcon)),
-    h('span', { className: 'bt-plugins-title' }, t('Plugins')),
-    collapsed ? h('span', { className: 'bt-sec-count' }, String(panels.length)) : null,
-    collapsed && hasActive ? h('span', { className: 'bt-plugins-dot', 'aria-hidden': true }) : null),
-    h('div', { className: 'bt-plugins-body' },
-      h('div', { className: 'bt-plugins-list' },
-        panels.map((panel) => {
-          const active = activePanelId === panel.id
-          return h('button', {
-            key: panel.id, type: 'button', className: 'bt-plugin-row',
-            'data-panel-id': panel.id, 'aria-label': panel.label,
-            'aria-current': active ? 'page' : undefined,
-            onMouseEnter: (event) => {
-              const row = event.currentTarget
-              const name = row.querySelector('.bt-plugin-name')
-              if (name && name.scrollWidth > name.clientWidth) row.title = name.textContent
-              else row.removeAttribute('title')
-            },
-            onClick: () => onSelect(panel.id),
-          },
-          h('span', { className: 'bt-plugin-ico', 'aria-hidden': true }, h(PluginIconGlyph, { Icon: panel.Icon, size: 16, active })),
-          h('span', { className: 'bt-plugin-name' }, panel.label))
-        }))))
+export function PinnedPluginButton({ panel, active, onSelect }) {
+  return h('button', {
+    type: 'button',
+    className: 'bt-account bt-plugin-dock-btn',
+    'data-panel-id': panel.id,
+    'aria-label': panel.label,
+    title: panel.label,
+    'aria-current': active ? 'page' : undefined,
+    onClick: () => onSelect(panel.id),
+  }, h('span', { className: 'bt-you', 'aria-hidden': true }, h(PluginIconGlyph, { Icon: panel.Icon, size: 16, active })))
 }
 
 export function TeamSidebar(props) {
@@ -643,6 +598,19 @@ export function TeamSidebar(props) {
   const useReadActivePanel = props.useActivePanel ?? useNullPanel
   const panelPlugins = useReadPanelPlugins(rows => rows)
   const activePanelId = useReadActivePanel(id => id)
+  const initialPinnedIds = useMemo(() => readPinnedPanels(), [])
+  const [pinnedIds, setPinnedIds] = useState(initialPinnedIds)
+  const onTogglePin = (id) => {
+    setPinnedIds((current) => {
+      const next = togglePinnedPanel(current, id)
+      writePinnedPanels(next)
+      return next
+    })
+  }
+  const pinnedPanels = useMemo(() => {
+    const byId = new Map(panelPlugins.map(panel => [panel.id, panel]))
+    return pinnedIds.map(id => byId.get(id)).filter(Boolean)
+  }, [panelPlugins, pinnedIds])
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
   const pref = props.useSidebarPref ? props.useSidebarPref(value => value) : 'open'
@@ -942,14 +910,19 @@ export function TeamSidebar(props) {
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
-  // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // The foot stands in for the shell's hidden footer: the account gear, the plugins
+  // launcher (with an upward menu when third-party panels are installed), and any
+  // plugins the user pinned beside it for one-click access.
+  const openPanel = id => navigate(actions.selectPanel, id)
+  const pluginsTrigger = h(PluginsButton, { actions, panels: panelPlugins, activePanelId, pinnedIds, onTogglePin, onSelect: openPanel })
+  const pinnedTriggers = pinnedPanels.map(panel => h(PinnedPluginButton, { key: panel.id, panel, active: activePanelId === panel.id, onSelect: openPanel }))
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), pluginsTrigger, pinnedTriggers)
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
+        pinnedTriggers,
         h(AccountLauncher, { seat: false, actions }),
-        h(PluginsButton, { actions }))
+        pluginsTrigger)
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
@@ -980,12 +953,6 @@ export function TeamSidebar(props) {
         onDragOverSec,
         onDropSec,
       }))),
-    h(PanelPluginsDock, {
-      wide: wideContent,
-      panels: panelPlugins,
-      activePanelId,
-      onSelect: id => navigate(actions.selectPanel, id),
-    }),
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
@@ -1359,13 +1326,88 @@ function useLandOnMainBot(roster, useSessions, actions) {
   }, [mainView, roster])
 }
 
-// The Plugins icon beside the foot's account gear: it opens the shell's plugin
-// manager panel. Wherever that panel's navigation face is absent — such as a
-// profile the peer may not list bundles in — nothing renders.
-export function PluginsButton({ actions }) {
-  if (!actions.hasPlugins?.()) return null
-  return h('button', { type: 'button', className: 'bt-account', 'aria-label': t('Plugins'), title: t('Plugins'), onClick: () => actions.openPlugins() },
-    h('span', { className: 'bt-you', 'aria-hidden': true }, h(PlugIcon)))
+// The Plugins icon beside the foot's account gear. Without third-party sidebar panels,
+// it opens the shell's plugin manager directly (hidden where plugin navigation is absent).
+// With third-party panels installed, it opens an upward menu listing every panel (with a
+// pin button to dock frequent plugins beside the footer icons) plus "Manage plugins".
+export function PluginsButton({ actions, panels = EMPTY_PANELS, activePanelId = null, pinnedIds = EMPTY_PANELS, onTogglePin, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const [box, setBox] = useState(null)
+  const button = useRef(null)
+  const menuRef = useRef(null)
+  const hasManager = actions.hasPlugins?.() === true
+  const hasPanels = Array.isArray(panels) && panels.length > 0
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (event) => {
+      if (event.target instanceof Element && (event.target.closest('.bt-plugins-menu') || button.current?.contains(event.target))) return
+      setOpen(false)
+    }
+    const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, button.current)) return
+      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() }
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+  }, [open])
+  const tick = useViewport()
+  const anchor = () => {
+    const rect = button.current?.getBoundingClientRect()
+    if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 })
+  }
+  useLayoutEffect(() => { if (open) anchor() }, [open, tick])
+  useEffect(() => { if (!hasPanels && open) setOpen(false) }, [hasPanels, open])
+  if (!hasManager && !hasPanels) return null
+  if (!hasPanels) {
+    return h('button', { type: 'button', className: 'bt-account', 'aria-label': t('Plugins'), title: t('Plugins'), onClick: () => actions.openPlugins() },
+      h('span', { className: 'bt-you', 'aria-hidden': true }, h(PlugIcon)))
+  }
+  const toggle = () => { if (!open) anchor(); setOpen(value => !value) }
+  const openUnpinned = activePanelId !== null && panels.some(panel => panel.id === activePanelId) && !pinnedIds.includes(activePanelId)
+  const pick = (id) => {
+    setOpen(false)
+    if (typeof onSelect === 'function') onSelect(id)
+    else actions.selectPanel?.(id)
+  }
+  return h(Fragment, null,
+    h('button', {
+      ref: button, type: 'button', className: 'bt-account bt-plugins-trigger',
+      'aria-label': t('Plugins'), title: t('Plugins'),
+      'aria-haspopup': 'menu', 'aria-expanded': open,
+      onClick: toggle,
+    },
+    h('span', { className: 'bt-you', 'aria-hidden': true }, h(PlugIcon)),
+    openUnpinned ? h('span', { className: 'bt-plugin-live-dot', 'aria-hidden': true }) : null),
+    open && box ? createPortal(h('div', { ref: menuRef, className: 'bt-menu bt-menu-up bt-plugins-menu', role: 'menu', 'aria-label': t('Plugins'), style: box },
+      h('div', { className: 'bt-plugins-menu-list' },
+        panels.map((panel) => {
+          const active = activePanelId === panel.id
+          const pinned = pinnedIds.includes(panel.id)
+          const pinLabel = t(pinned ? 'Unpin from footer' : 'Pin to footer')
+          return h('div', { key: panel.id, className: 'bt-plugin-mrow', 'data-pinned': pinned ? 'true' : undefined },
+            h('button', {
+              type: 'button', role: 'menuitem', className: 'bt-plugin-mitem',
+              'data-panel-id': panel.id,
+              'aria-current': active ? 'page' : undefined,
+              onClick: () => pick(panel.id),
+            },
+            h('span', { className: 'bt-plugin-mico', 'aria-hidden': true }, h(PluginIconGlyph, { Icon: panel.Icon, size: 15, active })),
+            h('span', { className: 'bt-menu-label' }, panel.label),
+            active ? h('span', { className: 'bt-menu-check', 'aria-hidden': true }, h(CheckIcon)) : null),
+            onTogglePin ? h('button', {
+              type: 'button', className: 'bt-plugin-mpin',
+              'data-pin-panel': panel.id,
+              'aria-label': pinLabel, title: pinLabel, 'aria-pressed': pinned,
+              onClick: (event) => { event.stopPropagation(); onTogglePin(panel.id) },
+            }, h(pinned ? PinMarkIcon : PinIcon)) : null)
+        })),
+      hasManager ? h(Fragment, null,
+        h('div', { className: 'bt-menu-sep', role: 'separator' }),
+        h('button', {
+          type: 'button', role: 'menuitem', className: 'bt-plugin-manage',
+          onClick: () => { setOpen(false); actions.openPlugins() },
+        }, h(PlugIcon), h('span', { className: 'bt-menu-label' }, t('Manage plugins')))) : null), document.body) : null)
 }
 
 export function FooterAccount(props) {
@@ -1547,35 +1589,27 @@ export const SIDEBAR_CSS = `
 .bt-sec-add-menu{max-width:260px}
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
 
-/* Third-party DSH sidebar panel plugins pinned cleanly above the footer. */
-.bt-plugins{display:flex;flex-direction:column;flex:none;border-top:1px solid var(--bt-line);padding-top:6px;margin-top:2px}
-.bt-plugins-head{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-3);font-family:var(--bt-font);font-size:12px;line-height:16px;font-weight:600;cursor:pointer;width:100%;text-align:left;transition:background-color .12s ease,color .12s ease}
-.bt-plugins-head:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
-.bt-plugins-head:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-plugins-chev{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:none;transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-plugins[data-collapsed=false] .bt-plugins-chev{transform:rotate(90deg)}
-.bt-plugins-chev svg{width:12px;height:12px}
-.bt-plugins-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-plugins-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-accent);margin-left:auto;flex:none}
-.bt-plugins-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-plugins[data-collapsed=true] .bt-plugins-body{grid-template-rows:0fr}
-.bt-plugins-list{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:2px;max-height:152px}
-.bt-plugins[data-collapsed=false] .bt-plugins-list{overflow-y:auto;padding-top:2px}
-.bt-plugin-row{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink-2);font-family:var(--bt-font);font-size:13px;line-height:18px;font-weight:400;text-align:left;cursor:pointer;width:100%;box-sizing:border-box;flex:none;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
-.bt-plugin-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-plugin-row:active{transform:scale(.98)}
-.bt-plugin-row[aria-current=page]{background:var(--bt-active);color:var(--bt-ink);font-weight:500}
-.bt-plugin-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-plugin-ico{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;color:currentColor}
-.bt-plugin-ico svg{width:16px;height:16px;display:block}
-.bt-plugin-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-plugins-rail{display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:100%;padding-top:4px}
-.bt-plugins-rail-list{display:flex;flex-direction:column;align-items:center;gap:6px;max-height:144px;overflow-y:auto;width:100%}
-.bt-plugin-rail-btn{flex:none;width:36px;height:36px;border:0;padding:0;border-radius:50%;corner-shape:round;background:transparent;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
-.bt-plugin-rail-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-plugin-rail-btn:active{transform:scale(.92)}
-.bt-plugin-rail-btn[aria-current=page]{background:var(--bt-active);color:var(--bt-ink);box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
-.bt-plugin-rail-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-plugin-rail-btn .bt-plugin-ico svg{width:18px;height:18px}
-@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder,.bt-plugins-body,.bt-plugins-chev,.bt-plugin-row,.bt-plugin-rail-btn{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
+/* Upgraded Plugins launcher menu and footer-pinned plugin circle buttons. */
+.bt-leftcol-foot:not(.bt-leftcol-foot-rail){flex-wrap:wrap}
+.bt-plugins-trigger{position:relative}
+.bt-plugin-live-dot{position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar);pointer-events:none}
+.bt-plugin-dock-btn .bt-you svg{width:16px;height:16px;display:block}
+.bt-plugin-dock-btn[aria-current=page] .bt-you{background:color-mix(in srgb,var(--bt-accent) 14%,var(--bt-sidebar));color:var(--bt-accent);box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-plugins-menu{width:236px}
+.bt-plugins-menu-list{display:flex;flex-direction:column;gap:2px;max-height:256px;overflow-y:auto}
+.bt-plugin-mrow{display:flex;align-items:center;gap:2px}
+.bt-menu .bt-plugin-mitem{flex:1;min-width:0;gap:8px;padding:6px 8px}
+.bt-menu .bt-plugin-mitem[aria-current=page]{background:var(--bt-hover);font-weight:500}
+.bt-plugin-mico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;color:var(--bt-ink-2)}
+.bt-menu .bt-plugin-mitem[aria-current=page] .bt-plugin-mico{color:var(--bt-ink)}
+.bt-plugin-mico svg{width:15px;height:15px;display:block;margin:0}
+.bt-menu .bt-plugin-mpin{width:26px;min-height:26px;height:26px;padding:0;flex:none;justify-content:center;border-radius:6px;color:var(--bt-ink-3);opacity:0;transition:opacity .12s ease,background-color .12s ease,color .12s ease}
+.bt-plugin-mrow:is(:hover,:focus-within) .bt-plugin-mpin,.bt-plugin-mrow[data-pinned=true] .bt-plugin-mpin{opacity:1}
+.bt-menu .bt-plugin-mpin:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-menu .bt-plugin-mpin[aria-pressed=true]{color:var(--bt-accent)}
+.bt-menu .bt-plugin-mpin svg{width:13px;height:13px;margin:0}
+.bt-menu .bt-plugin-manage{gap:8px;color:var(--bt-ink-2)}
+.bt-menu .bt-plugin-manage:hover{color:var(--bt-ink)}
+@media (hover:none){.bt-menu .bt-plugin-mpin{opacity:.75}}
+@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder,.bt-menu .bt-plugin-mpin{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
 `

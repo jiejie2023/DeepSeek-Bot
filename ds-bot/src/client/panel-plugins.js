@@ -73,19 +73,33 @@ export function activePanelSource(layout) {
   }
 }
 
-export function readPanelsCollapsed(storage = globalThis.localStorage) {
+export function readPinnedPanels(storage = globalThis.localStorage) {
   try {
-    return storage?.getItem(STORAGE.panelsCollapsed) === '1'
+    const parsed = JSON.parse(storage?.getItem(STORAGE.pinnedPanels) ?? '[]')
+    if (!Array.isArray(parsed)) return []
+    const seen = new Set()
+    const out = []
+    for (const item of parsed) {
+      if (typeof item !== 'string' || item === '' || HIDDEN_PANEL_IDS.has(item) || seen.has(item)) continue
+      seen.add(item)
+      out.push(item)
+    }
+    return out
   } catch {
-    return false
+    return []
   }
 }
 
-export function writePanelsCollapsed(collapsed, storage = globalThis.localStorage) {
+export function writePinnedPanels(ids, storage = globalThis.localStorage) {
   try {
-    if (collapsed) storage?.setItem(STORAGE.panelsCollapsed, '1')
-    else storage?.removeItem(STORAGE.panelsCollapsed)
+    if (!Array.isArray(ids) || ids.length === 0) storage?.removeItem(STORAGE.pinnedPanels)
+    else storage?.setItem(STORAGE.pinnedPanels, JSON.stringify(ids))
   } catch { /* storage unavailable */ }
+}
+
+export function togglePinnedPanel(ids, id) {
+  if (typeof id !== 'string' || id === '' || HIDDEN_PANEL_IDS.has(id)) return ids
+  return ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]
 }
 
 const BaseComponent = typeof Component === 'function' ? Component : null

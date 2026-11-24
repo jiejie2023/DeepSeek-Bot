@@ -12,7 +12,7 @@ export const STORAGE = {
   browserWidth: 'ds-bot:browser-width',
   browserImportSource: 'ds-bot:browser-import-source',
   sidebar: 'ds-bot:sidebar',
-  panelsCollapsed: 'ds-bot:panels-collapsed',
+  pinnedPanels: 'ds-bot:pinned-panels',
   browsers: 'ds-bot.browser.v2',
   drafts: 'ds-bot:drafts',
 }
